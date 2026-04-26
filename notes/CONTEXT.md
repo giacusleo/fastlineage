@@ -18,7 +18,7 @@ This file stays **short and current** so any agent can pick up work fast. It is 
   - Single click selects a node
   - Double click re-roots/opens
   - “Use Open File” is manual only
-- Upstream/downstream depth tracked separately
+  - Upstream/downstream depth tracked separately
 - Per-node expand controls exist
 
 ## Fixture dbt project
@@ -44,4 +44,4 @@ Intentionally large:
 
 ## Recent agent actions
 
-- 2026-04-26: Added `notes/` folder + implemented depth-control + card/expander UX updates; combined depth into single “Depth” control; reshaped fixture into per-model folders with dbt docs files; reshaped seeds and snapshots too; reduced repeated boilerplate in column docs; added shared `common_docs` anchors and rewired repeated columns to them; refreshed lineage cards/edges, set default downstream depth to 1, and made the layout responsive to narrower panes.
+- 2026-04-26: Added `notes/` folder + implemented depth-control + card/expander UX updates; combined depth into single “Depth” control; reshaped fixture into per-model folders with dbt docs files; reshaped seeds and snapshots too; reduced repeated boilerplate in column docs; added shared `common_docs` anchors and rewired repeated columns to them; refreshed lineage cards/edges, set default upstream/downstream depth to 1, made the layout responsive to narrower panes, and shifted layering/routing toward a more scalable dependency-depth view.

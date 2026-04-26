@@ -11,3 +11,5 @@
 - Added shared `common_docs` anchors and rewired repeated column descriptions to them.
 - Refreshed lineage card design with db-style glyphs, materialization labels, cleaner edge routing, freer drag bounds, and default downstream depth of 1.
 - Made lineage layout responsive to narrower VS Code panes with adaptive sizing, board bounds, and resize refitting.
+- Changed the default upstream depth from 2 to 1.
+- Reworked lineage layering from shortest-hop placement to dependency-depth placement and simplified routing around target-side trunks for better scalability.

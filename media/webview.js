@@ -287,38 +287,55 @@
       };
     }
 
+    function collectReachable(startId, adjacency) {
+      const seen = new Set();
+      const queue = [...(adjacency.get(startId) || [])];
+      while (queue.length) {
+        const current = queue.shift();
+        if (!current || seen.has(current) || !byId.has(current)) continue;
+        seen.add(current);
+        for (const next of adjacency.get(current) || []) {
+          if (!seen.has(next)) queue.push(next);
+        }
+      }
+      return seen;
+    }
+
+    const upstreamSet = collectReachable(focusId, deps);
+    const downstreamSet = collectReachable(focusId, rdeps);
     const columns = new Map([[focusId, 0]]);
-    const bestDepth = new Map([[focusId, 0]]);
-    const queue = [];
+    const upstreamMemo = new Map();
+    const downstreamMemo = new Map();
 
-    function enqueue(id, side, depth) {
-      queue.push({ id, side, depth });
+    function upstreamColumn(nodeId, visiting = new Set()) {
+      if (upstreamMemo.has(nodeId)) return upstreamMemo.get(nodeId);
+      if (visiting.has(nodeId)) return -1;
+      visiting.add(nodeId);
+      const successors = (rdeps.get(nodeId) || []).filter((next) => next === focusId || upstreamSet.has(next));
+      const nextColumn =
+        successors.length === 0 ? -1 : Math.min(...successors.map((next) => (next === focusId ? 0 : upstreamColumn(next, visiting)))) - 1;
+      visiting.delete(nodeId);
+      upstreamMemo.set(nodeId, nextColumn);
+      return nextColumn;
     }
 
-    for (const dep of deps.get(focusId) || []) {
-      enqueue(dep, -1, 1);
+    function downstreamColumn(nodeId, visiting = new Set()) {
+      if (downstreamMemo.has(nodeId)) return downstreamMemo.get(nodeId);
+      if (visiting.has(nodeId)) return 1;
+      visiting.add(nodeId);
+      const predecessors = (deps.get(nodeId) || []).filter((next) => next === focusId || downstreamSet.has(next));
+      const nextColumn =
+        predecessors.length === 0 ? 1 : Math.max(...predecessors.map((next) => (next === focusId ? 0 : downstreamColumn(next, visiting)))) + 1;
+      visiting.delete(nodeId);
+      downstreamMemo.set(nodeId, nextColumn);
+      return nextColumn;
     }
-    for (const dep of rdeps.get(focusId) || []) {
-      enqueue(dep, 1, 1);
+
+    for (const nodeId of upstreamSet) {
+      columns.set(nodeId, upstreamColumn(nodeId));
     }
-
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current || !byId.has(current.id) || current.id === focusId) continue;
-
-      const seenDepth = bestDepth.get(current.id);
-      if (seenDepth !== undefined && seenDepth <= current.depth) continue;
-
-      bestDepth.set(current.id, current.depth);
-      columns.set(current.id, current.side * current.depth);
-
-      const nextDepth = current.depth + 1;
-      for (const neighbor of deps.get(current.id) || []) {
-        if (neighbor !== focusId) enqueue(neighbor, current.side, nextDepth);
-      }
-      for (const neighbor of rdeps.get(current.id) || []) {
-        if (neighbor !== focusId) enqueue(neighbor, current.side, nextDepth);
-      }
+    for (const nodeId of downstreamSet) {
+      columns.set(nodeId, downstreamColumn(nodeId));
     }
 
     const grouped = new Map();
@@ -645,26 +662,37 @@
     const endY = downstream.y + scene.nodeH / 2 + (metrics.endOffsets.get(key) ?? 0);
     const travel = endX - startX;
     const laneOffset = metrics.laneOffsets.get(key) ?? 0;
+    const startColumn = scene.columns.get(edge.to) ?? 0;
+    const endColumn = scene.columns.get(edge.from) ?? 0;
+    const columnTravel = Math.max(1, endColumn - startColumn);
 
-    if (travel > 56) {
-      const laneX = startX + travel * 0.5 + laneOffset;
-      const outX = Math.min(startX + 38, laneX - 12);
-      const inX = Math.max(endX - 38, laneX + 12);
+    if (travel > 72) {
+      const outX = startX + 24;
+      const inX = endX - 24;
+      const minTrunkX = outX + 18;
+      const maxTrunkX = Math.max(minTrunkX, inX - 8);
+      const desiredTrunkX = endX - 34 - (columnTravel - 1) * 16 + laneOffset;
+      const trunkX = clamp(desiredTrunkX, minTrunkX, maxTrunkX);
       return [
         `M ${startX} ${startY}`,
-        `C ${startX + 22} ${startY}, ${outX} ${startY}, ${laneX} ${startY}`,
-        `L ${laneX} ${endY}`,
-        `C ${laneX} ${endY}, ${inX} ${endY}, ${endX} ${endY}`
+        `L ${outX} ${startY}`,
+        `L ${trunkX} ${startY}`,
+        `L ${trunkX} ${endY}`,
+        `L ${inX} ${endY}`,
+        `L ${endX} ${endY}`
       ].join(' ');
     }
 
-    const laneY = Math.min(startY, endY) - 58 - Math.abs(laneOffset) * 0.35;
-    const laneX = Math.max(startX, endX) + 44 + Math.abs(travel) * 0.55;
+    const laneY = Math.min(startY, endY) - 64 - Math.abs(laneOffset) * 0.45;
+    const laneX = Math.max(startX, endX) + 52 + Math.abs(travel) * 0.45;
     return [
       `M ${startX} ${startY}`,
-      `C ${laneX} ${startY}, ${laneX} ${laneY}, ${laneX - 20} ${laneY}`,
-      `L ${endX + 20} ${laneY}`,
-      `C ${endX - 18} ${laneY}, ${endX - 18} ${endY}, ${endX} ${endY}`
+      `L ${startX + 18} ${startY}`,
+      `L ${laneX} ${startY}`,
+      `L ${laneX} ${laneY}`,
+      `L ${endX + 18} ${laneY}`,
+      `L ${endX + 18} ${endY}`,
+      `L ${endX} ${endY}`
     ].join(' ');
   }
 

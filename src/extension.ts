@@ -49,7 +49,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
   private dbtRootHint: string | null = null;
   private focusId: LineageNodeId | null = null;
   private selectedId: LineageNodeId | null = null;
-  private upstreamDepth = 2;
+  private upstreamDepth = 1;
   private downstreamDepth = 1;
   private nodeExpansions = new Map<LineageNodeId, NodeExpansion>();
   private dirtySinceRefresh = false;

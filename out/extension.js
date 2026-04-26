@@ -57,7 +57,7 @@ class FastLineageViewProvider {
     dbtRootHint = null;
     focusId = null;
     selectedId = null;
-    upstreamDepth = 2;
+    upstreamDepth = 1;
     downstreamDepth = 1;
     nodeExpansions = new Map();
     dirtySinceRefresh = false;
