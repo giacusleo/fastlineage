@@ -8,6 +8,8 @@ export type LineageNode = {
   kind: NodeKind;
   label: string;
   filePath?: string;
+  materialization?: string;
+  tags?: string[];
   canExpandUpstream?: boolean;
   canExpandDownstream?: boolean;
 };

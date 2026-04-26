@@ -58,7 +58,7 @@ class FastLineageViewProvider {
     focusId = null;
     selectedId = null;
     upstreamDepth = 2;
-    downstreamDepth = 2;
+    downstreamDepth = 1;
     nodeExpansions = new Map();
     dirtySinceRefresh = false;
     refreshInFlight = null;

@@ -44,4 +44,4 @@ Intentionally large:
 
 ## Recent agent actions
 
-- 2026-04-26: Added `notes/` folder + implemented depth-control + card/expander UX updates; combined depth into single “Depth” control; reshaped fixture into per-model folders with dbt docs files; reshaped seeds and snapshots too; reduced repeated boilerplate in column docs; added shared `common_docs` anchors and rewired repeated columns to them.
+- 2026-04-26: Added `notes/` folder + implemented depth-control + card/expander UX updates; combined depth into single “Depth” control; reshaped fixture into per-model folders with dbt docs files; reshaped seeds and snapshots too; reduced repeated boilerplate in column docs; added shared `common_docs` anchors and rewired repeated columns to them; refreshed lineage cards/edges, set default downstream depth to 1, and made the layout responsive to narrower panes.

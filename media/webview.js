@@ -2,11 +2,11 @@
   const vscode = acquireVsCodeApi();
   const root = document.getElementById('root');
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const NODE_W = 232;
-  const NODE_H = 78;
-  const COL_GAP = 136;
-  const ROW_GAP = 22;
-  const PAD = 48;
+  const BASE_NODE_W = 272;
+  const BASE_NODE_H = 108;
+  const BASE_COL_GAP = 164;
+  const BASE_ROW_GAP = 28;
+  const BASE_PAD = 72;
   const MIN_SCALE = 0.55;
   const MAX_SCALE = 2.25;
 
@@ -57,30 +57,30 @@
 
   function roleForNode(node) {
     if (node.kind === 'source') {
-      return { chip: 'SRC', tone: 'source', subtitle: 'raw source' };
+      return { chip: 'SRC', tone: 'source' };
     }
     if (node.kind === 'seed') {
-      return { chip: 'SEED', tone: 'seed', subtitle: 'seed dataset' };
+      return { chip: 'SEED', tone: 'seed' };
     }
     if (node.kind === 'snapshot') {
-      return { chip: 'SNAP', tone: 'snapshot', subtitle: 'snapshot relation' };
+      return { chip: 'SNAP', tone: 'snapshot' };
     }
     if (node.label.startsWith('stg_')) {
-      return { chip: 'STG', tone: 'stage', subtitle: 'staging model' };
+      return { chip: 'STG', tone: 'stage' };
     }
     if (node.label.startsWith('int_')) {
-      return { chip: 'INT', tone: 'intermediate', subtitle: 'transform layer' };
+      return { chip: 'INT', tone: 'intermediate' };
     }
     if (node.label.startsWith('dim_')) {
-      return { chip: 'DIM', tone: 'dimension', subtitle: 'dimension model' };
+      return { chip: 'DIM', tone: 'dimension' };
     }
     if (node.label.startsWith('fct_')) {
-      return { chip: 'FACT', tone: 'fact', subtitle: 'fact model' };
+      return { chip: 'FACT', tone: 'fact' };
     }
     if (node.label.startsWith('mart_')) {
-      return { chip: 'MART', tone: 'mart', subtitle: 'mart output' };
+      return { chip: 'MART', tone: 'mart' };
     }
-    return { chip: 'MODEL', tone: 'model', subtitle: 'dbt model' };
+    return { chip: 'MODEL', tone: 'model' };
   }
 
   function roleWeight(node) {
@@ -113,22 +113,154 @@
     vscode.setState({ uiStateByScope });
   }
 
-  function computeBoardSize(nodes, positions, nodeW, nodeH) {
-    let maxX = PAD;
-    let maxY = PAD;
-    for (const node of nodes) {
-      const pos = positions.get(node.id);
-      if (!pos) continue;
-      maxX = Math.max(maxX, pos.x + nodeW);
-      maxY = Math.max(maxY, pos.y + nodeH);
-    }
+  function getViewportDimensions() {
+    const width = Math.max(360, root?.clientWidth || window.innerWidth || 1200);
+    const height = Math.max(360, root?.clientHeight || window.innerHeight || 720);
+    return { width, height };
+  }
+
+  function getLayoutMetrics() {
+    const { width, height } = getViewportDimensions();
+    const usableWidth = Math.max(340, width - 36);
+    const density = clamp((usableWidth - 420) / 780, 0, 1);
+
+    const nodeW = Math.round(224 + density * (BASE_NODE_W - 224));
+    const nodeH = Math.round(92 + density * (BASE_NODE_H - 92));
+    const colGap = Math.round(92 + density * (BASE_COL_GAP - 92));
+    const rowGap = Math.round(18 + density * (BASE_ROW_GAP - 18));
+    const pad = Math.round(44 + density * (BASE_PAD - 44));
+    const portSpacing = Math.round(8 + density * 4);
+    const key = usableWidth < 620 ? 'compact' : usableWidth < 940 ? 'cozy' : 'wide';
+
     return {
-      w: Math.max(maxX + PAD, 1200),
-      h: Math.max(maxY + PAD, 640)
+      key,
+      nodeW,
+      nodeH,
+      colGap,
+      rowGap,
+      pad,
+      portSpacing,
+      minBoardW: Math.max(usableWidth - 8, 420),
+      minBoardH: Math.max(height - 164, 360),
+      graphPad: key === 'compact' ? 12 : key === 'cozy' ? 14 : 18,
+      titleSize: key === 'compact' ? '14px' : '15px',
+      domainSize: key === 'compact' ? '9px' : '10px'
     };
   }
 
-  function layout(subgraph, focusId) {
+  function applyLayoutTheme(metrics) {
+    root.style.setProperty('--graph-wrap-pad', `${metrics.graphPad}px`);
+    root.style.setProperty('--node-w', `${metrics.nodeW}px`);
+    root.style.setProperty('--node-min-h', `${metrics.nodeH}px`);
+    root.style.setProperty('--node-title-size', metrics.titleSize);
+    root.style.setProperty('--node-domain-size', metrics.domainSize);
+  }
+
+  function scaleSavedPosition(pos, fromMetrics, toMetrics) {
+    if (!fromMetrics) return { x: pos.x, y: pos.y };
+    const fromStepX = (fromMetrics.nodeW || BASE_NODE_W) + (fromMetrics.colGap || BASE_COL_GAP);
+    const toStepX = toMetrics.nodeW + toMetrics.colGap;
+    const fromStepY = (fromMetrics.nodeH || BASE_NODE_H) + (fromMetrics.rowGap || BASE_ROW_GAP);
+    const toStepY = toMetrics.nodeH + toMetrics.rowGap;
+    return {
+      x: pos.x * (toStepX / Math.max(fromStepX, 1)),
+      y: pos.y * (toStepY / Math.max(fromStepY, 1))
+    };
+  }
+
+  function materializationForNode(node) {
+    if (node.materialization) return node.materialization;
+    if (node.kind === 'source') return 'source';
+    if (node.kind === 'seed') return 'seed';
+    if (node.kind === 'snapshot') return 'snapshot';
+    if (node.label.startsWith('stg_')) return 'view';
+    if (node.label.startsWith('int_') && node.label.endsWith('_hub')) return 'incremental';
+    if (node.label.startsWith('mart_')) return 'view';
+    return 'table';
+  }
+
+  function semanticTagForNode(node) {
+    const structuralTags = new Set([
+      'staging',
+      'intermediate',
+      'marts',
+      'dimension',
+      'fact',
+      'presentation',
+      'source-aligned',
+      'hub',
+      'rollup',
+      'fact-model',
+      'dimension-model',
+      'semantic'
+    ]);
+    const domainTag = (node.tags || []).find((tag) => !structuralTags.has(tag) && tag !== node.label);
+    if (domainTag) return domainTag.replace(/_/g, ' ');
+    if (node.kind === 'source') return node.label.split('.')[0];
+    const parts = node.label.split('_');
+    return parts[1] || node.kind;
+  }
+
+  function formatMaterialization(materialization) {
+    return materialization.replace(/_/g, ' ');
+  }
+
+  function materializationClass(materialization) {
+    return materialization.replace(/[^a-z0-9_-]/gi, '-').toLowerCase();
+  }
+
+  function computeBoardBounds(nodes, positions, nodeW, nodeH, metrics) {
+    let minX = 0;
+    let minY = 0;
+    let maxX = nodeW;
+    let maxY = nodeH;
+    let seeded = false;
+
+    for (const node of nodes) {
+      const pos = positions.get(node.id);
+      if (!pos) continue;
+
+      if (!seeded) {
+        minX = pos.x;
+        minY = pos.y;
+        maxX = pos.x + nodeW;
+        maxY = pos.y + nodeH;
+        seeded = true;
+        continue;
+      }
+
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + nodeW);
+      maxY = Math.max(maxY, pos.y + nodeH);
+    }
+
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      originX: metrics.pad - minX,
+      originY: metrics.pad - minY,
+      w: Math.max(maxX - minX + metrics.pad * 2, metrics.minBoardW),
+      h: Math.max(maxY - minY + metrics.pad * 2, metrics.minBoardH)
+    };
+  }
+
+  function boardPoint(scene, point) {
+    return {
+      x: point.x + scene.bounds.originX,
+      y: point.y + scene.bounds.originY
+    };
+  }
+
+  function boardPosition(scene, nodeId) {
+    const pos = scene.positions.get(nodeId);
+    if (!pos) return null;
+    return boardPoint(scene, pos);
+  }
+
+  function layout(subgraph, focusId, metrics) {
     const nodes = subgraph.nodes;
     const edges = subgraph.edges;
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -148,9 +280,10 @@
     if (!focusId || !byId.has(focusId)) {
       return {
         positions: new Map(),
-        nodeW: NODE_W,
-        nodeH: NODE_H,
-        size: { w: 1200, h: 640 }
+        columns: new Map(),
+        nodeW: metrics.nodeW,
+        nodeH: metrics.nodeH,
+        size: { w: metrics.minBoardW, h: metrics.minBoardH }
       };
     }
 
@@ -203,46 +336,100 @@
     }
 
     const keys = Array.from(grouped.keys()).sort((a, b) => a - b);
+    const initialOrder = new Map();
+    for (const key of keys) {
+      for (const node of grouped.get(key) || []) {
+        initialOrder.set(node.id, initialOrder.size);
+      }
+    }
+
+    const scoreNode = (node, columnKey, rowById) => {
+      let total = 0;
+      let weight = 0;
+      for (const neighbor of [...(deps.get(node.id) || []), ...(rdeps.get(node.id) || [])]) {
+        const neighborColumn = columns.get(neighbor) ?? (neighbor === focusId ? 0 : null);
+        const neighborRow = rowById.get(neighbor);
+        if (neighborColumn == null || neighborColumn === columnKey || neighborRow == null) continue;
+        const edgeWeight = 1 / Math.max(1, Math.abs(neighborColumn - columnKey));
+        total += neighborRow * edgeWeight;
+        weight += edgeWeight;
+      }
+      return weight ? total / weight : Number.POSITIVE_INFINITY;
+    };
+
+    for (let pass = 0; pass < 4; pass += 1) {
+      for (const sweep of [keys, [...keys].reverse()]) {
+        const rowById = new Map();
+        for (const key of keys) {
+          for (const [index, node] of (grouped.get(key) || []).entries()) {
+            rowById.set(node.id, index);
+          }
+        }
+
+        for (const key of sweep) {
+          const group = grouped.get(key) || [];
+          group.sort((a, b) => {
+            const aScore = scoreNode(a, key, rowById);
+            const bScore = scoreNode(b, key, rowById);
+            if (Number.isFinite(aScore) || Number.isFinite(bScore)) {
+              if (!Number.isFinite(aScore)) return 1;
+              if (!Number.isFinite(bScore)) return -1;
+              if (aScore !== bScore) return aScore - bScore;
+            }
+            const byRole = roleWeight(a) - roleWeight(b);
+            if (byRole !== 0) return byRole;
+            const byName = a.label.localeCompare(b.label);
+            if (byName !== 0) return byName;
+            return (initialOrder.get(a.id) ?? 0) - (initialOrder.get(b.id) ?? 0);
+          });
+        }
+      }
+    }
+
     const minKey = Math.min(...keys, 0);
     const maxKey = Math.max(...keys, 0);
-    const step = NODE_W + COL_GAP;
+    const step = metrics.nodeW + metrics.colGap;
     const positions = new Map();
     const maxRows = Math.max(1, ...Array.from(grouped.values(), (group) => group.length));
-    const maxColumnHeight = maxRows * NODE_H + Math.max(0, maxRows - 1) * ROW_GAP;
+    const maxColumnHeight = maxRows * metrics.nodeH + Math.max(0, maxRows - 1) * metrics.rowGap;
 
     for (const key of keys) {
       const group = grouped.get(key) || [];
-      const x = PAD + (key - minKey) * step;
-      const groupHeight = group.length * NODE_H + Math.max(0, group.length - 1) * ROW_GAP;
-      const startY = PAD + (maxColumnHeight - groupHeight) / 2;
+      const x = metrics.pad + (key - minKey) * step;
+      const groupHeight = group.length * metrics.nodeH + Math.max(0, group.length - 1) * metrics.rowGap;
+      const startY = metrics.pad + (maxColumnHeight - groupHeight) / 2;
       for (let index = 0; index < group.length; index += 1) {
         positions.set(group[index].id, {
           x,
-          y: startY + index * (NODE_H + ROW_GAP)
+          y: startY + index * (metrics.nodeH + metrics.rowGap)
         });
       }
     }
 
     return {
       positions,
-      nodeW: NODE_W,
-      nodeH: NODE_H,
+      columns,
+      nodeW: metrics.nodeW,
+      nodeH: metrics.nodeH,
       size: {
-        w: PAD * 2 + (maxKey - minKey + 1) * NODE_W + Math.max(0, maxKey - minKey) * COL_GAP,
-        h: PAD * 2 + maxColumnHeight
+        w: metrics.pad * 2 + (maxKey - minKey + 1) * metrics.nodeW + Math.max(0, maxKey - minKey) * metrics.colGap,
+        h: metrics.pad * 2 + maxColumnHeight
       }
     };
   }
 
   function computeScene(currentState) {
-    const base = layout(currentState.subgraph, currentState.focus.focusId);
+    const layoutMetrics = getLayoutMetrics();
+    applyLayoutTheme(layoutMetrics);
+    const base = layout(currentState.subgraph, currentState.focus.focusId, layoutMetrics);
     const key = scopeKey(currentState);
     const saved = ensureScopeUi(key);
     const positions = new Map(base.positions);
+    const savedLayoutMetrics = saved.layoutMetrics || null;
 
     for (const [nodeId, pos] of Object.entries(saved.positions || {})) {
       if (!positions.has(nodeId) || nodeId === currentState.focus.focusId) continue;
-      positions.set(nodeId, { x: pos.x, y: pos.y });
+      positions.set(nodeId, scaleSavedPosition(pos, savedLayoutMetrics, layoutMetrics));
     }
 
     const viewport = saved.viewport || {};
@@ -252,14 +439,19 @@
       edges: currentState.subgraph.edges,
       focusId: currentState.focus.focusId,
       selectedId: currentState.focus.selectedId || currentState.focus.focusId,
+      columns: base.columns,
       nodeW: base.nodeW,
       nodeH: base.nodeH,
+      layoutMetrics,
       positions,
-      size: computeBoardSize(currentState.subgraph.nodes, positions, base.nodeW, base.nodeH),
+      bounds: computeBoardBounds(currentState.subgraph.nodes, positions, base.nodeW, base.nodeH, layoutMetrics),
       scale: clamp(viewport.scale ?? 1, MIN_SCALE, MAX_SCALE),
       panX: viewport.panX ?? 0,
       panY: viewport.panY ?? 0,
-      hasViewport: Number.isFinite(viewport.panX) && Number.isFinite(viewport.panY)
+      hasViewport:
+        Number.isFinite(viewport.panX) &&
+        Number.isFinite(viewport.panY) &&
+        viewport.layoutKey === layoutMetrics.key
     };
   }
 
@@ -268,7 +460,8 @@
     saved.viewport = {
       scale: scene.scale,
       panX: scene.panX,
-      panY: scene.panY
+      panY: scene.panY,
+      layoutKey: scene.layoutMetrics.key
     };
     persistUiState();
   }
@@ -282,6 +475,13 @@
       if (pos) positions[node.id] = { x: pos.x, y: pos.y };
     }
     saved.positions = positions;
+    saved.layoutMetrics = {
+      key: scene.layoutMetrics.key,
+      nodeW: scene.layoutMetrics.nodeW,
+      nodeH: scene.layoutMetrics.nodeH,
+      colGap: scene.layoutMetrics.colGap,
+      rowGap: scene.layoutMetrics.rowGap
+    };
     persistUiState();
   }
 
@@ -295,7 +495,7 @@
 
   function positionCard(scene, nodeId) {
     const card = scene.cards.get(nodeId);
-    const pos = scene.positions.get(nodeId);
+    const pos = boardPosition(scene, nodeId);
     if (!card || !pos) return;
     card.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
   }
@@ -308,16 +508,33 @@
   }
 
   function refreshSceneBounds(scene) {
-    scene.size = computeBoardSize(scene.nodes, scene.positions, scene.nodeW, scene.nodeH);
-    scene.board.style.width = `${scene.size.w}px`;
-    scene.board.style.height = `${scene.size.h}px`;
-    scene.svgLayer.setAttribute('width', String(scene.size.w));
-    scene.svgLayer.setAttribute('height', String(scene.size.h));
-    scene.svgLayer.setAttribute('viewBox', `0 0 ${scene.size.w} ${scene.size.h}`);
+    const previous = scene.bounds;
+    scene.bounds = computeBoardBounds(scene.nodes, scene.positions, scene.nodeW, scene.nodeH, scene.layoutMetrics);
+    scene.board.style.width = `${scene.bounds.w}px`;
+    scene.board.style.height = `${scene.bounds.h}px`;
+    scene.svgLayer.setAttribute('width', String(scene.bounds.w));
+    scene.svgLayer.setAttribute('height', String(scene.bounds.h));
+    scene.svgLayer.setAttribute('viewBox', `0 0 ${scene.bounds.w} ${scene.bounds.h}`);
+
+    if (previous) {
+      const deltaX = scene.bounds.originX - previous.originX;
+      const deltaY = scene.bounds.originY - previous.originY;
+      if (deltaX || deltaY) {
+        scene.panX -= deltaX * scene.scale;
+        scene.panY -= deltaY * scene.scale;
+        applyViewport(scene);
+      }
+    }
+
+    if (scene.cards) {
+      for (const node of scene.nodes) {
+        positionCard(scene, node.id);
+      }
+    }
   }
 
   function centerFocus(scene) {
-    const focusPos = scene.positions.get(scene.focusId);
+    const focusPos = boardPosition(scene, scene.focusId);
     if (!focusPos) return;
     const rect = scene.viewport.getBoundingClientRect();
     const viewportWidth = rect.width || scene.viewport.clientWidth || 1200;
@@ -325,6 +542,20 @@
     scene.panX = viewportWidth / 2 - (focusPos.x + scene.nodeW / 2) * scene.scale;
     scene.panY = viewportHeight / 2 - (focusPos.y + scene.nodeH / 2) * scene.scale;
     applyViewport(scene);
+  }
+
+  function fitScaleForScene(scene) {
+    const rect = scene.viewport.getBoundingClientRect();
+    const viewportWidth = rect.width || scene.viewport.clientWidth || 1200;
+    const viewportHeight = rect.height || scene.viewport.clientHeight || 720;
+    const fitX = (viewportWidth - 56) / Math.max(scene.bounds.w, 1);
+    const fitY = (viewportHeight - 56) / Math.max(scene.bounds.h, 1);
+    return clamp(Math.min(1, fitX, fitY), MIN_SCALE, MAX_SCALE);
+  }
+
+  function fitAndCenterScene(scene) {
+    scene.scale = fitScaleForScene(scene);
+    centerFocus(scene);
   }
 
   function zoomTo(scene, nextScale, clientX, clientY) {
@@ -344,29 +575,96 @@
     saveSceneViewport(scene);
   }
 
-  function edgePath(scene, edge) {
-    const upstream = scene.positions.get(edge.to);
-    const downstream = scene.positions.get(edge.from);
-    if (!upstream || !downstream) return null;
+  function edgeKey(edge, index) {
+    return `${index}:${edge.from}->${edge.to}`;
+  }
 
-    const startX = upstream.x + scene.nodeW + 10;
-    const startY = upstream.y + scene.nodeH / 2;
-    const endX = downstream.x - 16;
-    const endY = downstream.y + scene.nodeH / 2;
-    const travel = endX - startX;
+  function spreadOffsets(count, gap) {
+    const center = (count - 1) / 2;
+    return Array.from({ length: count }, (_, index) => (index - center) * gap);
+  }
 
-    if (travel >= 64) {
-      const curve = Math.max(56, Math.min(190, travel * 0.46));
-      return `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`;
+  function buildEdgeMetrics(scene) {
+    const outgoing = new Map();
+    const incoming = new Map();
+    const laneGroups = new Map();
+
+    scene.edges.forEach((edge, index) => {
+      const key = edgeKey(edge, index);
+      const startId = edge.to;
+      const endId = edge.from;
+
+      if (!outgoing.has(startId)) outgoing.set(startId, []);
+      if (!incoming.has(endId)) incoming.set(endId, []);
+      outgoing.get(startId).push({ key, neighborId: endId });
+      incoming.get(endId).push({ key, neighborId: startId });
+
+      const groupKey = `${scene.columns.get(startId) ?? 0}:${scene.columns.get(endId) ?? 0}`;
+      if (!laneGroups.has(groupKey)) laneGroups.set(groupKey, []);
+      laneGroups.get(groupKey).push({ key, startId, endId });
+    });
+
+    const startOffsets = new Map();
+    const endOffsets = new Map();
+    const laneOffsets = new Map();
+
+    for (const edges of outgoing.values()) {
+      edges.sort((left, right) => (boardPosition(scene, left.neighborId)?.y ?? 0) - (boardPosition(scene, right.neighborId)?.y ?? 0));
+      const offsets = spreadOffsets(edges.length, scene.layoutMetrics.portSpacing);
+      edges.forEach((entry, index) => startOffsets.set(entry.key, offsets[index]));
     }
 
-    const laneY = startY <= endY ? Math.min(startY, endY) - 44 : Math.max(startY, endY) + 44;
-    const laneX = startX + Math.max(60, Math.abs(travel) * 0.55 + 36);
+    for (const edges of incoming.values()) {
+      edges.sort((left, right) => (boardPosition(scene, left.neighborId)?.y ?? 0) - (boardPosition(scene, right.neighborId)?.y ?? 0));
+      const offsets = spreadOffsets(edges.length, scene.layoutMetrics.portSpacing);
+      edges.forEach((entry, index) => endOffsets.set(entry.key, offsets[index]));
+    }
+
+    for (const edges of laneGroups.values()) {
+      edges.sort((left, right) => {
+        const leftCenter = ((boardPosition(scene, left.startId)?.y ?? 0) + (boardPosition(scene, left.endId)?.y ?? 0)) / 2;
+        const rightCenter = ((boardPosition(scene, right.startId)?.y ?? 0) + (boardPosition(scene, right.endId)?.y ?? 0)) / 2;
+        return leftCenter - rightCenter;
+      });
+      const offsets = spreadOffsets(edges.length, 18);
+      edges.forEach((entry, index) => laneOffsets.set(entry.key, offsets[index]));
+    }
+
+    return { startOffsets, endOffsets, laneOffsets };
+  }
+
+  function edgePath(scene, edge, metrics, index) {
+    const upstream = boardPosition(scene, edge.to);
+    const downstream = boardPosition(scene, edge.from);
+    if (!upstream || !downstream) return null;
+
+    const key = edgeKey(edge, index);
+    const startX = upstream.x + scene.nodeW + 12;
+    const startY = upstream.y + scene.nodeH / 2 + (metrics.startOffsets.get(key) ?? 0);
+    const endX = downstream.x - 14;
+    const endY = downstream.y + scene.nodeH / 2 + (metrics.endOffsets.get(key) ?? 0);
+    const travel = endX - startX;
+    const laneOffset = metrics.laneOffsets.get(key) ?? 0;
+
+    if (travel > 56) {
+      const laneX = startX + travel * 0.5 + laneOffset;
+      const outX = Math.min(startX + 38, laneX - 12);
+      const inX = Math.max(endX - 38, laneX + 12);
+      return [
+        `M ${startX} ${startY}`,
+        `C ${startX + 22} ${startY}, ${outX} ${startY}, ${laneX} ${startY}`,
+        `L ${laneX} ${endY}`,
+        `C ${laneX} ${endY}, ${inX} ${endY}, ${endX} ${endY}`
+      ].join(' ');
+    }
+
+    const laneY = Math.min(startY, endY) - 58 - Math.abs(laneOffset) * 0.35;
+    const laneX = Math.max(startX, endX) + 44 + Math.abs(travel) * 0.55;
     return [
       `M ${startX} ${startY}`,
-      `C ${laneX} ${startY}, ${laneX} ${laneY}, ${laneX + 18} ${laneY}`,
-      `L ${endX - 18} ${laneY}`,
-      `C ${endX - 44} ${laneY}, ${endX - 44} ${endY}, ${endX} ${endY}`
+      `C ${laneX} ${startY}, ${laneX} ${laneY}, ${laneX - 20} ${laneY}`,
+      `L ${endX + 20} ${laneY}`,
+      `C ${endX - 18} ${laneY}, ${endX - 18} ${endY}, ${endX} ${endY}`
     ].join(' ');
   }
 
@@ -387,9 +685,10 @@
     const fragment = document.createDocumentFragment();
     fragment.appendChild(defs);
 
-    for (const edge of scene.edges) {
-      const path = edgePath(scene, edge);
-      if (!path) continue;
+    const metrics = buildEdgeMetrics(scene);
+    scene.edges.forEach((edge, index) => {
+      const path = edgePath(scene, edge, metrics, index);
+      if (!path) return;
       const highlightId = scene.selectedId || scene.focusId;
       const edgeNode = svg('path', {
         class: edge.from === highlightId || edge.to === highlightId ? 'edge focus' : 'edge',
@@ -397,7 +696,7 @@
         'marker-end': 'url(#fastlineage-arrow)'
       });
       fragment.appendChild(edgeNode);
-    }
+    });
 
     scene.svgLayer.replaceChildren(fragment);
   }
@@ -419,6 +718,49 @@
     if (!until || until <= Date.now()) return false;
     delete card.dataset.dragSuppressUntil;
     return true;
+  }
+
+  function appendDatabaseBase(iconSvg) {
+    iconSvg.appendChild(svg('ellipse', { cx: 12, cy: 6.5, rx: 6.5, ry: 2.6, fill: 'none' }));
+    iconSvg.appendChild(
+      svg('path', {
+        d: 'M 5.5 6.5 V 14.2 C 5.5 15.8 8.4 17 12 17 C 15.6 17 18.5 15.8 18.5 14.2 V 6.5',
+        fill: 'none'
+      })
+    );
+    iconSvg.appendChild(svg('path', { d: 'M 5.5 10.3 C 5.5 11.9 8.4 13.1 12 13.1 C 15.6 13.1 18.5 11.9 18.5 10.3', fill: 'none' }));
+  }
+
+  function renderNodeIcon(node) {
+    const materialization = materializationForNode(node);
+    const icon = el('div', { className: `nodeIcon material-${materializationClass(materialization)}` });
+    const iconSvg = svg('svg', { viewBox: '0 0 24 24', class: 'nodeIconGlyph', 'aria-hidden': 'true' });
+    appendDatabaseBase(iconSvg);
+
+    if (node.kind === 'source') {
+      iconSvg.appendChild(svg('path', { d: 'M 8 4.8 H 4.2 V 8.6', fill: 'none' }));
+      iconSvg.appendChild(svg('path', { d: 'M 4.2 8.6 L 8.2 12.2', fill: 'none' }));
+    } else if (node.kind === 'snapshot') {
+      iconSvg.appendChild(svg('circle', { cx: 17.4, cy: 17.2, r: 3.1, fill: 'none' }));
+      iconSvg.appendChild(svg('path', { d: 'M 17.4 15.4 V 17.4 L 18.8 18.4', fill: 'none' }));
+    } else if (node.kind === 'seed') {
+      iconSvg.appendChild(svg('circle', { cx: 17.2, cy: 16.7, r: 2.4, fill: 'none' }));
+      iconSvg.appendChild(svg('path', { d: 'M 17.2 14.3 V 19.1 M 14.8 16.7 H 19.6', fill: 'none' }));
+    } else if (materialization === 'incremental') {
+      iconSvg.appendChild(svg('path', { d: 'M 15.8 15.2 A 3.1 3.1 0 0 1 11.5 18', fill: 'none' }));
+      iconSvg.appendChild(svg('path', { d: 'M 11.6 18 L 12.7 16.6 M 11.6 18 L 13.5 18', fill: 'none' }));
+    } else if (materialization === 'view') {
+      iconSvg.appendChild(svg('path', { d: 'M 14.5 16.9 C 15.7 15.4 16.9 14.7 18.4 14.7 C 16.9 14.7 15.7 13.9 14.5 12.5', fill: 'none' }));
+      iconSvg.appendChild(svg('circle', { cx: 17.4, cy: 14.7, r: 0.8 }));
+    } else if (materialization === 'ephemeral') {
+      iconSvg.appendChild(svg('path', { d: 'M 15.3 12.8 L 17.2 15.5 L 15.5 15.5 L 17 18.2', fill: 'none' }));
+    } else {
+      iconSvg.appendChild(svg('rect', { x: 15.1, y: 13.1, width: 4.6, height: 4.2, rx: 0.7, fill: 'none' }));
+      iconSvg.appendChild(svg('path', { d: 'M 17.4 13.1 V 17.3 M 15.1 15.2 H 19.7', fill: 'none' }));
+    }
+
+    icon.appendChild(iconSvg);
+    return icon;
   }
 
   function enableCardDrag(scene, node, card) {
@@ -447,12 +789,11 @@
         if (!moved && Math.abs(dx) + Math.abs(dy) > 2) moved = true;
 
         const next = {
-          x: Math.max(PAD * 0.25, startPos.x + dx),
-          y: Math.max(PAD * 0.25, startPos.y + dy)
+          x: startPos.x + dx,
+          y: startPos.y + dy
         };
 
         scene.positions.set(node.id, next);
-        positionCard(scene, node.id);
         refreshSceneBounds(scene);
         drawEdges(scene);
       };
@@ -480,18 +821,26 @@
 
   function renderNodeCard(scene, node) {
     const role = roleForNode(node);
+    const materialization = materializationForNode(node);
     const isFocus = node.id === scene.focusId;
     const isSelected = node.id === scene.selectedId;
     const card = el('div', {
       className: `nodeCard tone-${role.tone}${isFocus ? ' anchor' : ''}${isSelected ? ' selected' : ''}`,
       role: 'button',
       tabindex: '0',
-      title: node.label
+      title: `${node.label} • ${formatMaterialization(materialization)}`
     });
 
-    const header = el('div', { className: 'nodeHeader' });
-    header.appendChild(el('span', { className: 'nodeChip', text: role.chip }));
-    header.appendChild(el('div', { className: 'nodeName', text: node.label }));
+    const identity = el('div', { className: 'nodeIdentity' });
+    identity.appendChild(renderNodeIcon(node));
+
+    const titleWrap = el('div', { className: 'nodeTitleWrap' });
+    const titleMeta = el('div', { className: 'nodeTitleMeta' });
+    titleMeta.appendChild(el('span', { className: 'nodeChip', text: role.chip }));
+    titleMeta.appendChild(el('span', { className: 'nodeDomain', text: semanticTagForNode(node) }));
+    titleWrap.appendChild(titleMeta);
+    titleWrap.appendChild(el('div', { className: 'nodeName', text: node.label }));
+    identity.appendChild(titleWrap);
 
     const actions = el('div', { className: 'nodeActions' });
     const upstreamButton = el('button', {
@@ -528,8 +877,19 @@
     actions.appendChild(upstreamButton);
     actions.appendChild(downstreamButton);
 
-    card.appendChild(header);
-    card.appendChild(actions);
+    const footer = el('div', { className: 'nodeFooter' });
+    const facts = el('div', { className: 'nodeFacts' });
+    facts.appendChild(
+      el('span', {
+        className: `nodeMaterial material-${materializationClass(materialization)}`,
+        text: formatMaterialization(materialization)
+      })
+    );
+    footer.appendChild(facts);
+    footer.appendChild(actions);
+
+    card.appendChild(identity);
+    card.appendChild(footer);
     card.addEventListener('click', () => {
       if (shouldSuppressCardClick(card)) return;
       makeNodeSelectHandler(node)();
@@ -613,9 +973,9 @@
     const board = el('div', { className: 'graphBoard' });
     const svgLayer = svg('svg', {
       class: 'edgeLayer',
-      width: scene.size.w,
-      height: scene.size.h,
-      viewBox: `0 0 ${scene.size.w} ${scene.size.h}`
+      width: scene.bounds.w,
+      height: scene.bounds.h,
+      viewBox: `0 0 ${scene.bounds.w} ${scene.bounds.h}`
     });
 
     board.appendChild(svgLayer);
@@ -785,13 +1145,23 @@
       if (!activeScene) return;
       applyViewport(activeScene);
       if (!activeScene.hasViewport) {
-        centerFocus(activeScene);
+        fitAndCenterScene(activeScene);
         saveSceneViewport(activeScene);
       } else {
         applyViewport(activeScene);
       }
     });
   }
+
+  let resizeFrame = 0;
+  window.addEventListener('resize', () => {
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      if (!state) return;
+      render();
+    });
+  });
 
   window.addEventListener('message', (event) => {
     const msg = event.data;

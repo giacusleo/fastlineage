@@ -9,6 +9,13 @@ const EXCLUDE_GLOB = '**/{target,dbt_packages,node_modules}/**';
 type RelationInfo = {
   kind: NodeKind;
   filePath?: string;
+  materialization?: string;
+  tags?: string[];
+};
+
+type RelationMetadata = {
+  materialization?: string;
+  tags?: string[];
 };
 
 export type NodeExpansion = {
@@ -24,6 +31,69 @@ function addToMapSet<K, V>(map: Map<K, Set<V>>, key: K, value: V) {
   const set = map.get(key);
   if (set) set.add(value);
   else map.set(key, new Set([value]));
+}
+
+function fallbackMaterialization(kind: NodeKind, relation: string): string {
+  if (kind === 'source') return 'source';
+  if (kind === 'seed') return 'seed';
+  if (kind === 'snapshot') return 'snapshot';
+  if (relation.startsWith('stg_')) return 'view';
+  if (relation.startsWith('int_') && relation.endsWith('_hub')) return 'incremental';
+  if (relation.startsWith('int_')) return 'table';
+  if (relation.startsWith('mart_')) return 'view';
+  return 'table';
+}
+
+function parseYamlList(text: string, key: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const values: string[] = [];
+  let collecting = false;
+  let baseIndent = 0;
+
+  for (const line of lines) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    const trimmed = line.trim();
+
+    if (!collecting) {
+      if (trimmed === `${key}:`) {
+        collecting = true;
+        baseIndent = indent;
+      }
+      continue;
+    }
+
+    if (!trimmed) continue;
+    if (indent <= baseIndent) break;
+
+    const item = trimmed.match(/^-\s+(.+)$/);
+    if (!item) break;
+    values.push(item[1].trim().replace(/^['"]|['"]$/g, ''));
+  }
+
+  return values;
+}
+
+function parseRelationMetadata(text: string, kind: NodeKind, relation: string): RelationMetadata {
+  const materializedMatch = text.match(/^\s*materialized:\s*([A-Za-z0-9_-]+)/m);
+  return {
+    materialization: materializedMatch?.[1] ?? fallbackMaterialization(kind, relation),
+    tags: parseYamlList(text, 'tags')
+  };
+}
+
+async function readRelationMetadata(filePath: string, kind: NodeKind): Promise<RelationMetadata> {
+  if (kind === 'source') {
+    return { materialization: 'source', tags: [] };
+  }
+
+  const relation = relationNameFromPath(filePath);
+  const sidecarUri = vscode.Uri.file(path.join(path.dirname(filePath), `${relation}.yml`));
+  try {
+    const text = await readWorkspaceText(sidecarUri);
+    return parseRelationMetadata(text, kind, relation);
+  } catch {
+    return { materialization: fallbackMaterialization(kind, relation), tags: [] };
+  }
 }
 
 export function relationNameFromPath(filePath: string): string {
@@ -87,28 +157,49 @@ export async function buildGraphFromWorkspace(): Promise<BuildResult> {
   const rdeps = new Map<LineageNodeId, Set<LineageNodeId>>();
   const relations = new Map<string, RelationInfo>();
 
-  function upsertNode(id: LineageNodeId, kind: NodeKind, label: string, filePath?: string) {
+  function upsertNode(id: LineageNodeId, kind: NodeKind, label: string, filePath?: string, metadata: RelationMetadata = {}) {
     const existing = nodes.get(id);
     if (existing) {
       if (filePath && !existing.filePath) existing.filePath = filePath;
+      if (metadata.materialization && !existing.materialization) existing.materialization = metadata.materialization;
+      if (metadata.tags?.length && !existing.tags?.length) existing.tags = [...metadata.tags];
       return;
     }
-    nodes.set(id, { id, kind, label, filePath });
+    nodes.set(id, {
+      id,
+      kind,
+      label,
+      filePath,
+      materialization: metadata.materialization ?? fallbackMaterialization(kind, label),
+      tags: metadata.tags?.length ? [...metadata.tags] : []
+    });
   }
 
-  function registerRelation(name: string, kind: NodeKind, filePath?: string) {
-    if (!relations.has(name)) relations.set(name, { kind, filePath });
-    upsertNode(nodeId(kind, name), kind, name, filePath);
+  function registerRelation(name: string, kind: NodeKind, filePath?: string, metadata: RelationMetadata = {}) {
+    const existing = relations.get(name);
+    relations.set(name, {
+      kind: existing?.kind ?? kind,
+      filePath: existing?.filePath ?? filePath,
+      materialization: existing?.materialization ?? metadata.materialization,
+      tags: existing?.tags?.length ? existing.tags : metadata.tags
+    });
+    upsertNode(nodeId(kind, name), kind, name, filePath, metadata);
   }
+
+  const metadataByPath = new Map<string, RelationMetadata>(
+    await Promise.all(
+      [...modelFiles, ...snapshotFiles, ...seedFiles].map(async (uri) => [uri.fsPath, await readRelationMetadata(uri.fsPath, nodeKindFromPath(uri.fsPath))] as const)
+    )
+  );
 
   for (const uri of modelFiles) {
-    registerRelation(relationNameFromPath(uri.fsPath), 'model', uri.fsPath);
+    registerRelation(relationNameFromPath(uri.fsPath), 'model', uri.fsPath, metadataByPath.get(uri.fsPath));
   }
   for (const uri of snapshotFiles) {
-    registerRelation(relationNameFromPath(uri.fsPath), 'snapshot', uri.fsPath);
+    registerRelation(relationNameFromPath(uri.fsPath), 'snapshot', uri.fsPath, metadataByPath.get(uri.fsPath));
   }
   for (const uri of seedFiles) {
-    registerRelation(relationNameFromPath(uri.fsPath), 'seed', uri.fsPath);
+    registerRelation(relationNameFromPath(uri.fsPath), 'seed', uri.fsPath, metadataByPath.get(uri.fsPath));
   }
 
   const parsedFiles = await Promise.all(
@@ -130,9 +221,13 @@ export async function buildGraphFromWorkspace(): Promise<BuildResult> {
   for (const file of parsedFiles) {
     if (!file) continue;
     for (const ref of file.parsed.refs) {
-      const target = relations.get(ref.model) ?? { kind: 'model' as NodeKind };
+      const target = relations.get(ref.model) ?? {
+        kind: 'model' as NodeKind,
+        materialization: fallbackMaterialization('model', ref.model),
+        tags: []
+      };
       const toId = nodeId(target.kind, ref.model);
-      upsertNode(toId, target.kind, ref.model, target.filePath);
+      upsertNode(toId, target.kind, ref.model, target.filePath, target);
       edges.push({ from: file.fromId, to: toId });
       addToMapSet(deps, file.fromId, toId);
       addToMapSet(rdeps, toId, file.fromId);
@@ -141,7 +236,7 @@ export async function buildGraphFromWorkspace(): Promise<BuildResult> {
     for (const source of file.parsed.sources) {
       const label = `${source.source}.${source.table}`;
       const toId = nodeId('source', label);
-      upsertNode(toId, 'source', label);
+      upsertNode(toId, 'source', label, undefined, { materialization: 'source', tags: [source.source] });
       edges.push({ from: file.fromId, to: toId });
       addToMapSet(deps, file.fromId, toId);
       addToMapSet(rdeps, toId, file.fromId);

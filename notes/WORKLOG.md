@@ -9,3 +9,5 @@
 - Restructured seeds and snapshots into per-asset folders with matching config/docs files.
 - Rewrote generated doc blocks to reduce repeated boilerplate across column docs.
 - Added shared `common_docs` anchors and rewired repeated column descriptions to them.
+- Refreshed lineage card design with db-style glyphs, materialization labels, cleaner edge routing, freer drag bounds, and default downstream depth of 1.
+- Made lineage layout responsive to narrower VS Code panes with adaptive sizing, board bounds, and resize refitting.

@@ -54,6 +54,70 @@ function addToMapSet(map, key, value) {
     else
         map.set(key, new Set([value]));
 }
+function fallbackMaterialization(kind, relation) {
+    if (kind === 'source')
+        return 'source';
+    if (kind === 'seed')
+        return 'seed';
+    if (kind === 'snapshot')
+        return 'snapshot';
+    if (relation.startsWith('stg_'))
+        return 'view';
+    if (relation.startsWith('int_') && relation.endsWith('_hub'))
+        return 'incremental';
+    if (relation.startsWith('int_'))
+        return 'table';
+    if (relation.startsWith('mart_'))
+        return 'view';
+    return 'table';
+}
+function parseYamlList(text, key) {
+    const lines = text.split(/\r?\n/);
+    const values = [];
+    let collecting = false;
+    let baseIndent = 0;
+    for (const line of lines) {
+        const indent = line.match(/^\s*/)?.[0].length ?? 0;
+        const trimmed = line.trim();
+        if (!collecting) {
+            if (trimmed === `${key}:`) {
+                collecting = true;
+                baseIndent = indent;
+            }
+            continue;
+        }
+        if (!trimmed)
+            continue;
+        if (indent <= baseIndent)
+            break;
+        const item = trimmed.match(/^-\s+(.+)$/);
+        if (!item)
+            break;
+        values.push(item[1].trim().replace(/^['"]|['"]$/g, ''));
+    }
+    return values;
+}
+function parseRelationMetadata(text, kind, relation) {
+    const materializedMatch = text.match(/^\s*materialized:\s*([A-Za-z0-9_-]+)/m);
+    return {
+        materialization: materializedMatch?.[1] ?? fallbackMaterialization(kind, relation),
+        tags: parseYamlList(text, 'tags')
+    };
+}
+async function readRelationMetadata(filePath, kind) {
+    if (kind === 'source') {
+        return { materialization: 'source', tags: [] };
+    }
+    const relation = relationNameFromPath(filePath);
+    const sidecarUri = vscode.Uri.file(path.join(path.dirname(filePath), `${relation}.yml`));
+    try {
+        const text = await readWorkspaceText(sidecarUri);
+        return parseRelationMetadata(text, kind, relation);
+    }
+    catch {
+        return { materialization: fallbackMaterialization(kind, relation), tags: [] };
+    }
+}
 function relationNameFromPath(filePath) {
     return path.basename(filePath, path.extname(filePath));
 }
@@ -102,28 +166,45 @@ async function buildGraphFromWorkspace() {
     const deps = new Map();
     const rdeps = new Map();
     const relations = new Map();
-    function upsertNode(id, kind, label, filePath) {
+    function upsertNode(id, kind, label, filePath, metadata = {}) {
         const existing = nodes.get(id);
         if (existing) {
             if (filePath && !existing.filePath)
                 existing.filePath = filePath;
+            if (metadata.materialization && !existing.materialization)
+                existing.materialization = metadata.materialization;
+            if (metadata.tags?.length && !existing.tags?.length)
+                existing.tags = [...metadata.tags];
             return;
         }
-        nodes.set(id, { id, kind, label, filePath });
+        nodes.set(id, {
+            id,
+            kind,
+            label,
+            filePath,
+            materialization: metadata.materialization ?? fallbackMaterialization(kind, label),
+            tags: metadata.tags?.length ? [...metadata.tags] : []
+        });
     }
-    function registerRelation(name, kind, filePath) {
-        if (!relations.has(name))
-            relations.set(name, { kind, filePath });
-        upsertNode(nodeId(kind, name), kind, name, filePath);
+    function registerRelation(name, kind, filePath, metadata = {}) {
+        const existing = relations.get(name);
+        relations.set(name, {
+            kind: existing?.kind ?? kind,
+            filePath: existing?.filePath ?? filePath,
+            materialization: existing?.materialization ?? metadata.materialization,
+            tags: existing?.tags?.length ? existing.tags : metadata.tags
+        });
+        upsertNode(nodeId(kind, name), kind, name, filePath, metadata);
     }
+    const metadataByPath = new Map(await Promise.all([...modelFiles, ...snapshotFiles, ...seedFiles].map(async (uri) => [uri.fsPath, await readRelationMetadata(uri.fsPath, nodeKindFromPath(uri.fsPath))])));
     for (const uri of modelFiles) {
-        registerRelation(relationNameFromPath(uri.fsPath), 'model', uri.fsPath);
+        registerRelation(relationNameFromPath(uri.fsPath), 'model', uri.fsPath, metadataByPath.get(uri.fsPath));
     }
     for (const uri of snapshotFiles) {
-        registerRelation(relationNameFromPath(uri.fsPath), 'snapshot', uri.fsPath);
+        registerRelation(relationNameFromPath(uri.fsPath), 'snapshot', uri.fsPath, metadataByPath.get(uri.fsPath));
     }
     for (const uri of seedFiles) {
-        registerRelation(relationNameFromPath(uri.fsPath), 'seed', uri.fsPath);
+        registerRelation(relationNameFromPath(uri.fsPath), 'seed', uri.fsPath, metadataByPath.get(uri.fsPath));
     }
     const parsedFiles = await Promise.all(sqlFiles.map(async (uri) => {
         const filePath = uri.fsPath;
@@ -143,9 +224,13 @@ async function buildGraphFromWorkspace() {
         if (!file)
             continue;
         for (const ref of file.parsed.refs) {
-            const target = relations.get(ref.model) ?? { kind: 'model' };
+            const target = relations.get(ref.model) ?? {
+                kind: 'model',
+                materialization: fallbackMaterialization('model', ref.model),
+                tags: []
+            };
             const toId = nodeId(target.kind, ref.model);
-            upsertNode(toId, target.kind, ref.model, target.filePath);
+            upsertNode(toId, target.kind, ref.model, target.filePath, target);
             edges.push({ from: file.fromId, to: toId });
             addToMapSet(deps, file.fromId, toId);
             addToMapSet(rdeps, toId, file.fromId);
@@ -153,7 +238,7 @@ async function buildGraphFromWorkspace() {
         for (const source of file.parsed.sources) {
             const label = `${source.source}.${source.table}`;
             const toId = nodeId('source', label);
-            upsertNode(toId, 'source', label);
+            upsertNode(toId, 'source', label, undefined, { materialization: 'source', tags: [source.source] });
             edges.push({ from: file.fromId, to: toId });
             addToMapSet(deps, file.fromId, toId);
             addToMapSet(rdeps, toId, file.fromId);
