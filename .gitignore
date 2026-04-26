@@ -1,0 +1,19 @@
+## macOS
+.DS_Store
+
+## Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+## VS Code
+.vscode/
+
+## Extension build artifacts
+*.vsix
+
+## dbt-generated (fixtures)
+fixtures/dbt_project/logs/
+fixtures/dbt_project/target/
+

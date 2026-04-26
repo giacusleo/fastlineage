@@ -1,0 +1,19 @@
+**/.DS_Store
+
+# dev-only / repo-only
+.vscode/**
+src/**
+scripts/**
+notes/**
+fixtures/**
+.gitignore
+PUBLISHING.md
+
+# build / tooling
+node_modules/**
+*.vsix
+tsconfig.json
+package-lock.json
+
+# keep source maps out of the published extension (optional)
+out/**/*.map

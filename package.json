@@ -2,8 +2,8 @@
   "name": "fastlineage",
   "displayName": "FastLineage",
   "description": "A lightweight dbt lineage visualiser that lives in the VS Code panel.",
-  "version": "0.0.1",
-  "publisher": "fastlineage",
+  "version": "0.0.2",
+  "publisher": "giacusleo",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -11,6 +11,13 @@
     "Visualization",
     "Other"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/giacusleo/fastlineage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/giacusleo/fastlineage/issues"
+  },
   "activationEvents": [
     "onView:fastlineageView",
     "onCommand:fastlineage.refresh",
@@ -48,14 +55,17 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p .",
     "watch": "tsc -w -p .",
     "lint": "eslint .",
-    "package": "vsce package"
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.6.0",
     "eslint": "^9.1.1",
     "typescript": "^5.5.4"
   }

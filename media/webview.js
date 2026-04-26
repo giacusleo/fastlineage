@@ -601,29 +601,42 @@
     return Array.from({ length: count }, (_, index) => (index - center) * gap);
   }
 
+  function edgeAnchorPoints(scene, edge, metrics, index) {
+    const upstream = boardPosition(scene, edge.to);
+    const downstream = boardPosition(scene, edge.from);
+    if (!upstream || !downstream) return null;
+
+    const key = edgeKey(edge, index);
+    return {
+      key,
+      sourceId: edge.to,
+      targetId: edge.from,
+      startX: upstream.x + scene.nodeW + 2,
+      startY: upstream.y + scene.nodeH / 2 + (metrics.startOffsets.get(key) ?? 0),
+      endX: downstream.x + 1,
+      endY: downstream.y + scene.nodeH / 2
+    };
+  }
+
   function buildEdgeMetrics(scene) {
     const outgoing = new Map();
-    const incoming = new Map();
-    const laneGroups = new Map();
+    const bundleEntries = new Map();
 
     scene.edges.forEach((edge, index) => {
       const key = edgeKey(edge, index);
-      const startId = edge.to;
-      const endId = edge.from;
+      const sourceId = edge.to;
+      const targetId = edge.from;
 
-      if (!outgoing.has(startId)) outgoing.set(startId, []);
-      if (!incoming.has(endId)) incoming.set(endId, []);
-      outgoing.get(startId).push({ key, neighborId: endId });
-      incoming.get(endId).push({ key, neighborId: startId });
+      if (!outgoing.has(sourceId)) outgoing.set(sourceId, []);
+      outgoing.get(sourceId).push({ key, neighborId: targetId });
 
-      const groupKey = `${scene.columns.get(startId) ?? 0}:${scene.columns.get(endId) ?? 0}`;
-      if (!laneGroups.has(groupKey)) laneGroups.set(groupKey, []);
-      laneGroups.get(groupKey).push({ key, startId, endId });
+      if (!bundleEntries.has(targetId)) bundleEntries.set(targetId, []);
+      bundleEntries.get(targetId).push({ key, edge, index });
     });
 
     const startOffsets = new Map();
-    const endOffsets = new Map();
-    const laneOffsets = new Map();
+    const bundleByEdge = new Map();
+    const bundleGroups = new Map();
 
     for (const edges of outgoing.values()) {
       edges.sort((left, right) => (boardPosition(scene, left.neighborId)?.y ?? 0) - (boardPosition(scene, right.neighborId)?.y ?? 0));
@@ -631,100 +644,142 @@
       edges.forEach((entry, index) => startOffsets.set(entry.key, offsets[index]));
     }
 
-    for (const edges of incoming.values()) {
-      edges.sort((left, right) => (boardPosition(scene, left.neighborId)?.y ?? 0) - (boardPosition(scene, right.neighborId)?.y ?? 0));
-      const offsets = spreadOffsets(edges.length, scene.layoutMetrics.portSpacing);
-      edges.forEach((entry, index) => endOffsets.set(entry.key, offsets[index]));
+    for (const [targetId, edges] of bundleEntries.entries()) {
+      const groupsBySide = new Map();
+
+      for (const entry of edges) {
+        const anchors = edgeAnchorPoints(scene, entry.edge, { startOffsets }, entry.index);
+        if (!anchors) continue;
+        const side = anchors.startX <= anchors.endX ? 'left' : 'right';
+        if (!groupsBySide.has(side)) groupsBySide.set(side, []);
+        groupsBySide.get(side).push({ ...entry, anchors });
+      }
+
+      for (const [side, entries] of groupsBySide.entries()) {
+        entries.sort((left, right) => left.anchors.startY - right.anchors.startY);
+        const targetY = entries[0]?.anchors.endY ?? 0;
+        const endX = entries[0]?.anchors.endX ?? 0;
+        const minStartX = Math.min(...entries.map((entry) => entry.anchors.startX));
+        const maxStartX = Math.max(...entries.map((entry) => entry.anchors.startX));
+        const trunkInset = clamp(26 + Math.min(entries.length - 1, 5) * 3, 26, 42);
+        const mergeX =
+          side === 'left'
+            ? clamp(endX - trunkInset, minStartX + 28, endX - 12)
+            : clamp(endX + trunkInset, endX + 12, maxStartX - 28);
+        const canBundle = entries.length > 1 && (side === 'left' ? mergeX < endX - 8 : mergeX > endX + 8);
+
+        entries.forEach((entry) => {
+          bundleByEdge.set(entry.key, `${targetId}:${side}`);
+        });
+
+        bundleGroups.set(`${targetId}:${side}`, {
+          id: `${targetId}:${side}`,
+          targetId,
+          side,
+          endX,
+          endY: targetY,
+          mergeX,
+          canBundle,
+          entries
+        });
+      }
     }
 
-    for (const edges of laneGroups.values()) {
-      edges.sort((left, right) => {
-        const leftCenter = ((boardPosition(scene, left.startId)?.y ?? 0) + (boardPosition(scene, left.endId)?.y ?? 0)) / 2;
-        const rightCenter = ((boardPosition(scene, right.startId)?.y ?? 0) + (boardPosition(scene, right.endId)?.y ?? 0)) / 2;
-        return leftCenter - rightCenter;
-      });
-      const offsets = spreadOffsets(edges.length, 18);
-      edges.forEach((entry, index) => laneOffsets.set(entry.key, offsets[index]));
-    }
-
-    return { startOffsets, endOffsets, laneOffsets };
+    return { startOffsets, bundleByEdge, bundleGroups };
   }
 
-  function edgePath(scene, edge, metrics, index) {
-    const upstream = boardPosition(scene, edge.to);
-    const downstream = boardPosition(scene, edge.from);
-    if (!upstream || !downstream) return null;
+  function simpleEdgePath(scene, edge, metrics, index) {
+    const anchors = edgeAnchorPoints(scene, edge, metrics, index);
+    if (!anchors) return null;
 
-    const key = edgeKey(edge, index);
-    const startX = upstream.x + scene.nodeW + 12;
-    const startY = upstream.y + scene.nodeH / 2 + (metrics.startOffsets.get(key) ?? 0);
-    const endX = downstream.x - 14;
-    const endY = downstream.y + scene.nodeH / 2 + (metrics.endOffsets.get(key) ?? 0);
-    const travel = endX - startX;
-    const laneOffset = metrics.laneOffsets.get(key) ?? 0;
-    const startColumn = scene.columns.get(edge.to) ?? 0;
-    const endColumn = scene.columns.get(edge.from) ?? 0;
-    const columnTravel = Math.max(1, endColumn - startColumn);
+    const travel = anchors.endX - anchors.startX;
+    const direction = travel >= 0 ? 1 : -1;
+    const curve = clamp(Math.abs(travel) * 0.34, 22, 60);
+    return [
+      `M ${anchors.startX} ${anchors.startY}`,
+      `C ${anchors.startX + curve * direction} ${anchors.startY}, ${anchors.endX - curve * direction} ${anchors.endY}, ${anchors.endX} ${anchors.endY}`
+    ].join(' ');
+  }
 
-    if (travel > 72) {
-      const outX = startX + 24;
-      const inX = endX - 24;
-      const minTrunkX = outX + 18;
-      const maxTrunkX = Math.max(minTrunkX, inX - 8);
-      const desiredTrunkX = endX - 34 - (columnTravel - 1) * 16 + laneOffset;
-      const trunkX = clamp(desiredTrunkX, minTrunkX, maxTrunkX);
-      return [
-        `M ${startX} ${startY}`,
-        `L ${outX} ${startY}`,
-        `L ${trunkX} ${startY}`,
-        `L ${trunkX} ${endY}`,
-        `L ${inX} ${endY}`,
-        `L ${endX} ${endY}`
-      ].join(' ');
+  function bundledBranchPath(scene, edge, metrics, index) {
+    const anchors = edgeAnchorPoints(scene, edge, metrics, index);
+    if (!anchors) return null;
+
+    const groupId = metrics.bundleByEdge.get(anchors.key);
+    const group = groupId ? metrics.bundleGroups.get(groupId) : null;
+    if (!group || !group.canBundle) {
+      return { path: simpleEdgePath(scene, edge, metrics, index), bundled: false };
     }
 
-    const laneY = Math.min(startY, endY) - 64 - Math.abs(laneOffset) * 0.45;
-    const laneX = Math.max(startX, endX) + 52 + Math.abs(travel) * 0.45;
-    return [
-      `M ${startX} ${startY}`,
-      `L ${startX + 18} ${startY}`,
-      `L ${laneX} ${startY}`,
-      `L ${laneX} ${laneY}`,
-      `L ${endX + 18} ${laneY}`,
-      `L ${endX + 18} ${endY}`,
-      `L ${endX} ${endY}`
-    ].join(' ');
+    const travel = group.mergeX - anchors.startX;
+    if (Math.abs(travel) <= 18) {
+      return { path: simpleEdgePath(scene, edge, metrics, index), bundled: false };
+    }
+
+    const direction = travel >= 0 ? 1 : -1;
+    const sourceLead = clamp(Math.abs(travel) * 0.4, 22, 68);
+    const targetLead = clamp(16 + Math.abs(group.endY - anchors.startY) * 0.08, 16, 34);
+    return {
+      bundled: true,
+      groupId,
+      path: [
+        `M ${anchors.startX} ${anchors.startY}`,
+        `C ${anchors.startX + sourceLead * direction} ${anchors.startY}, ${group.mergeX - targetLead * direction} ${group.endY}, ${group.mergeX} ${group.endY}`
+      ].join(' ')
+    };
+  }
+
+  function bundleTrunkPath(group) {
+    if (!group.canBundle) return null;
+    return `M ${group.mergeX} ${group.endY} L ${group.endX} ${group.endY}`;
   }
 
   function drawEdges(scene) {
     const defs = svg('defs');
     const marker = svg('marker', {
       id: 'fastlineage-arrow',
-      viewBox: '0 0 10 10',
-      refX: 9,
-      refY: 5,
-      markerWidth: 8,
-      markerHeight: 8,
+      viewBox: '0 0 5 5',
+      refX: 4.85,
+      refY: 2.5,
+      markerWidth: 3.8,
+      markerHeight: 3.8,
       orient: 'auto-start-reverse'
     });
-    marker.appendChild(svg('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'currentColor' }));
+    marker.appendChild(svg('path', { d: 'M 0 0 L 5 2.5 L 0 5 z', fill: 'currentColor' }));
     defs.appendChild(marker);
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(defs);
 
     const metrics = buildEdgeMetrics(scene);
+    const highlightId = scene.selectedId || scene.focusId;
+
     scene.edges.forEach((edge, index) => {
-      const path = edgePath(scene, edge, metrics, index);
+      const branch = bundledBranchPath(scene, edge, metrics, index);
+      const path = branch?.path;
       if (!path) return;
-      const highlightId = scene.selectedId || scene.focusId;
       const edgeNode = svg('path', {
         class: edge.from === highlightId || edge.to === highlightId ? 'edge focus' : 'edge',
-        d: path,
-        'marker-end': 'url(#fastlineage-arrow)'
+        d: path
       });
+      if (!branch?.bundled) edgeNode.setAttribute('marker-end', 'url(#fastlineage-arrow)');
       fragment.appendChild(edgeNode);
     });
+
+    for (const group of metrics.bundleGroups.values()) {
+      if (!group.canBundle) continue;
+      const highlight = group.targetId === highlightId || group.entries.some((entry) => entry.edge.to === highlightId);
+      const trunkPath = bundleTrunkPath(group);
+      if (trunkPath) {
+        fragment.appendChild(
+          svg('path', {
+            class: highlight ? 'edge focus' : 'edge',
+            d: trunkPath,
+            'marker-end': 'url(#fastlineage-arrow)'
+          })
+        );
+      }
+    }
 
     scene.svgLayer.replaceChildren(fragment);
   }

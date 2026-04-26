@@ -200,15 +200,15 @@ button.primary:hover {
 .edge {
   fill: none;
   stroke: var(--edge);
-  stroke-width: 1.85;
+  stroke-width: 1.45;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.92;
+  opacity: 0.94;
 }
 
 .edge.focus {
   stroke: var(--edge-strong);
-  stroke-width: 2.45;
+  stroke-width: 1.95;
 }
 
 .nodeCard {

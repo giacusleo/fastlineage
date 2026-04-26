@@ -13,3 +13,6 @@
 - Made lineage layout responsive to narrower VS Code panes with adaptive sizing, board bounds, and resize refitting.
 - Changed the default upstream depth from 2 to 1.
 - Reworked lineage layering from shortest-hop placement to dependency-depth placement and simplified routing around target-side trunks for better scalability.
+- Refined edge styling with smaller card-touching arrowheads and smoother fan-in curves.
+- Replaced faux fan-in edge endings with true bundled-trunk routing so multiple inbound dependencies share one final arrow into each target card.
+- Refined the bundled trunk geometry again to remove the clunky target-side vertical rail and converge branches into a smoother shared horizontal stub.
