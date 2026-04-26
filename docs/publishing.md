@@ -17,6 +17,17 @@ This extension uses `@vscode/vsce` for packaging and publishing.
 3. Publish to the Marketplace:
    - `npx vsce publish -p <YOUR_PAT>`
 
+## Publish a GitHub release asset
+
+This repo also includes a GitHub Actions workflow that builds a `.vsix` automatically when you push a version tag such as `v0.0.2`.
+
+1. Make sure `package.json` has the version you want to ship.
+2. Create a tag that matches that version:
+   - `git tag v0.0.2`
+3. Push the tag:
+   - `git push origin v0.0.2`
+4. GitHub Actions will create a Release and attach the packaged `.vsix`.
+
 ## Notes
 - Each publish requires a new `version` in `package.json`.
 - `node_modules/`, `.DS_Store`, and dbt-generated fixture outputs are ignored and won’t be published.

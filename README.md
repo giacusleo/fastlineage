@@ -17,10 +17,16 @@ FastLineage is intentionally small and fast. Today it is SQL-driven and does not
 
 If you want to try the extension without publishing it:
 
+1. Open the repository's GitHub Releases page.
+2. Download the latest `fastlineage-*.vsix` asset.
+3. In VS Code or Cursor, open Extensions and choose "Install from VSIX...".
+
+If you want to build it yourself instead:
+
 1. Clone the repo.
 2. Run `npm install`.
 3. Run `npm run package`.
-4. Install the generated `.vsix` file in VS Code or Cursor via "Install from VSIX...".
+4. Install the generated `.vsix` file via "Install from VSIX...".
 
 ## Develop
 
