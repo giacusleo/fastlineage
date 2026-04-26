@@ -1,0 +1,4 @@
+record_id,channel,channel_group
+1,paid_search,paid
+2,email,owned
+3,partner,earned

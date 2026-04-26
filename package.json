@@ -1,0 +1,62 @@
+{
+  "name": "fastlineage",
+  "displayName": "FastLineage",
+  "description": "A lightweight dbt lineage visualiser that lives in the VS Code panel.",
+  "version": "0.0.1",
+  "publisher": "fastlineage",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:fastlineageView",
+    "onCommand:fastlineage.refresh",
+    "onCommand:fastlineage.revealActive"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fastlineage.refresh",
+        "title": "FastLineage: Refresh Lineage"
+      },
+      {
+        "command": "fastlineage.revealActive",
+        "title": "FastLineage: Focus Open File"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "fastlineagePanel",
+          "title": "FastLineage",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "fastlineagePanel": [
+        {
+          "id": "fastlineageView",
+          "name": "Lineage",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "lint": "eslint .",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "eslint": "^9.1.1",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,4 @@
+record_id,warehouse_code,capacity_units
+1,wh_ny,12000
+2,wh_mi,9500
+3,wh_ber,8800

@@ -1,0 +1,4 @@
+record_id,status_code,status_group
+1,pending,open
+2,shipped,closed
+3,returned,exception

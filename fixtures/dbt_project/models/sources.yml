@@ -1,0 +1,73 @@
+version: 2
+
+sources:
+  - name: app
+    tables:
+      - name: users
+      - name: sessions
+      - name: events
+      - name: feature_flags
+      - name: mobile_installs
+  - name: billing
+    tables:
+      - name: invoices
+      - name: invoice_lines
+      - name: subscriptions
+      - name: refunds
+      - name: payment_methods
+  - name: crm
+    tables:
+      - name: accounts
+      - name: contacts
+      - name: opportunities
+      - name: territories
+      - name: account_health
+  - name: finance
+    tables:
+      - name: general_ledger
+      - name: daily_fx
+      - name: tax_rates
+      - name: budgets
+      - name: expenses
+  - name: fulfillment
+    tables:
+      - name: shipments
+      - name: carriers
+      - name: delivery_events
+      - name: returns
+      - name: warehouses
+  - name: inventory
+    tables:
+      - name: products
+      - name: product_prices
+      - name: stock_levels
+      - name: suppliers
+      - name: purchase_orders
+  - name: marketing
+    tables:
+      - name: campaigns
+      - name: ad_spend
+      - name: leads
+      - name: email_events
+      - name: web_forms
+  - name: support
+    tables:
+      - name: tickets
+      - name: ticket_events
+      - name: csat_surveys
+      - name: agents
+      - name: macros
+  - name: web
+    tables:
+      - name: pageviews
+      - name: experiments
+      - name: conversions
+      - name: identities
+      - name: referrals
+  - name: loyalty
+    tables:
+      - name: members
+      - name: rewards
+      - name: redemptions
+      - name: points_events
+      - name: tiers

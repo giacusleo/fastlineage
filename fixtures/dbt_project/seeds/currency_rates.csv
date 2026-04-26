@@ -1,0 +1,4 @@
+record_id,currency_code,fx_to_usd
+1,USD,1.0
+2,EUR,1.08
+3,GBP,1.26

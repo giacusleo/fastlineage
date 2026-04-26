@@ -1,0 +1,4 @@
+record_id,tier_code,points_required
+1,silver,1000
+2,gold,2500
+3,platinum,5000

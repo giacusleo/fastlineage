@@ -1,0 +1,4 @@
+record_id,term_code,days_due
+1,net_15,15
+2,net_30,30
+3,net_45,45

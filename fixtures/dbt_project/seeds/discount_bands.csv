@@ -1,0 +1,4 @@
+record_id,band_name,discount_pct
+1,starter,0.05
+2,growth,0.10
+3,strategic,0.15

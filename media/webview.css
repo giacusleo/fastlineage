@@ -1,0 +1,328 @@
+:root {
+  --bg: var(--vscode-editor-background);
+  --panel: color-mix(in srgb, var(--vscode-editor-background) 84%, var(--vscode-sideBar-background) 16%);
+  --panel-elevated: color-mix(in srgb, var(--vscode-editor-background) 72%, white 4%);
+  --fg: var(--vscode-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --border: color-mix(in srgb, var(--vscode-panel-border) 72%, transparent);
+  --btn-bg: var(--vscode-button-background);
+  --btn-fg: var(--vscode-button-foreground);
+  --btn-bg-hover: var(--vscode-button-hoverBackground);
+  --accent: var(--vscode-focusBorder);
+  --edge: color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+  --edge-strong: color-mix(in srgb, var(--vscode-focusBorder) 62%, white 8%);
+  --badge-bg: color-mix(in srgb, var(--vscode-badge-background) 72%, transparent);
+  --badge-fg: var(--vscode-badge-foreground);
+  --shadow: 0 14px 30px color-mix(in srgb, black 22%, transparent);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--panel-elevated) 94%, transparent),
+    color-mix(in srgb, var(--panel) 94%, transparent)
+  );
+}
+
+.toolbarGroup,
+.statsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+button {
+  border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--panel-elevated) 92%, transparent);
+  transition: background 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--panel-elevated) 70%, transparent);
+  border-color: color-mix(in srgb, var(--fg) 26%, transparent);
+}
+
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button.primary {
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border-color: transparent;
+}
+
+button.primary:hover {
+  background: var(--btn-bg-hover);
+}
+
+.depthControl {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  background: color-mix(in srgb, var(--panel-elevated) 96%, transparent);
+}
+
+.depthControl button {
+  border: 0;
+  border-radius: 0;
+  min-width: 36px;
+  padding: 8px 10px;
+  background: transparent;
+}
+
+.depthValue {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-size: 11px;
+}
+
+.pill.muted {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--muted);
+}
+
+.pill.warn {
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground) 38%, transparent);
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.graphWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 10%, transparent) 0, transparent 30%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vscode-editor-background) 92%, black 2%),
+      var(--bg)
+    );
+}
+
+.graphBoard {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel) 95%, transparent),
+      color-mix(in srgb, var(--bg) 92%, transparent)
+    ),
+    linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--fg) 4%, transparent) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+
+.edgeLayer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--edge);
+}
+
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.edge.focus {
+  stroke: var(--edge-strong);
+  stroke-width: 2.5;
+}
+
+.nodeCard {
+  --tone: #7dc4d7;
+  position: absolute;
+  width: 232px;
+  min-height: 78px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone) 12%, var(--panel-elevated)),
+    color-mix(in srgb, var(--tone) 5%, var(--panel))
+  );
+  box-shadow: var(--shadow);
+  cursor: grab;
+  user-select: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 40ms linear;
+}
+
+.nodeCard:hover {
+  border-color: color-mix(in srgb, var(--tone) 55%, var(--border));
+  box-shadow: 0 16px 34px color-mix(in srgb, black 26%, transparent);
+}
+
+.nodeCard.focus {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--tone));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 20px 38px color-mix(in srgb, black 28%, transparent);
+}
+
+.nodeCard.dragging {
+  cursor: grabbing;
+  box-shadow: 0 20px 40px color-mix(in srgb, black 30%, transparent);
+}
+
+.nodeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nodeChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone) 42%, transparent);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+  color: color-mix(in srgb, var(--tone) 82%, white 10%);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nodeName {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nodeMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.nodeHint {
+  color: color-mix(in srgb, var(--tone) 62%, var(--muted));
+}
+
+.emptyState {
+  max-width: 560px;
+  margin: 40px auto 0;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--panel-elevated) 94%, transparent),
+    color-mix(in srgb, var(--panel) 94%, transparent)
+  );
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tone-stage {
+  --tone: #4db7ff;
+}
+
+.tone-intermediate {
+  --tone: #ffb454;
+}
+
+.tone-dimension {
+  --tone: #61d095;
+}
+
+.tone-fact {
+  --tone: #ff7a90;
+}
+
+.tone-mart {
+  --tone: #8aa2ff;
+}
+
+.tone-source {
+  --tone: #9ea7b3;
+}
+
+.tone-seed {
+  --tone: #4ec7b6;
+}
+
+.tone-snapshot {
+  --tone: #f3c969;
+}
+
+.tone-model {
+  --tone: #7dc4d7;
+}
