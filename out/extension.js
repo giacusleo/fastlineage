@@ -44,7 +44,7 @@ function activate(context) {
         webviewOptions: { retainContextWhenHidden: true }
     }));
     context.subscriptions.push(vscode.commands.registerCommand('fastlineage.refresh', () => provider.refresh(true)), vscode.commands.registerCommand('fastlineage.revealActive', () => provider.revealActiveModel()));
-    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => provider.revealActiveModel(false)), vscode.workspace.onDidSaveTextDocument(() => provider.onMaybeDirtyChanged()), vscode.workspace.onDidChangeTextDocument(() => provider.onMaybeDirtyChanged()));
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(() => provider.onMaybeDirtyChanged()), vscode.workspace.onDidChangeTextDocument(() => provider.onMaybeDirtyChanged()));
 }
 function deactivate() { }
 class FastLineageViewProvider {
@@ -56,7 +56,10 @@ class FastLineageViewProvider {
     durationMs = 0;
     dbtRootHint = null;
     focusId = null;
-    depth = 2;
+    selectedId = null;
+    upstreamDepth = 2;
+    downstreamDepth = 2;
+    nodeExpansions = new Map();
     dirtySinceRefresh = false;
     refreshInFlight = null;
     constructor(context) {
@@ -128,10 +131,9 @@ class FastLineageViewProvider {
             return;
         const relation = (0, lineage_1.relationNameFromPath)(editor.document.uri.fsPath);
         const id = `${kind}:${relation}`;
-        if (!forceFocus && this.focusId === id)
+        if (!forceFocus && this.focusId === id && this.selectedId === id)
             return;
-        this.focusId = id;
-        this.postState();
+        this.setFocus(id);
     }
     async onMessage(msg) {
         switch (msg.type) {
@@ -139,16 +141,53 @@ class FastLineageViewProvider {
                 await this.refresh(true);
                 return;
             case 'setDepth':
-                this.depth = Math.max(1, Math.min(8, Math.floor(msg.depth)));
-                this.postState();
+                this.setDirectionalDepth(msg.direction, msg.depth);
                 return;
             case 'revealActive':
                 this.revealActiveModel(true);
+                return;
+            case 'selectNode':
+                this.selectNode(msg.id);
+                return;
+            case 'expandNode':
+                this.expandNode(msg.id, msg.direction);
                 return;
             case 'openNode':
                 await this.openNode(msg.id);
                 return;
         }
+    }
+    setFocus(id) {
+        this.focusId = id;
+        this.selectedId = id;
+        this.nodeExpansions.clear();
+        this.postState();
+    }
+    setDirectionalDepth(direction, depth) {
+        const next = Math.max(0, Math.min(8, Math.floor(depth)));
+        if (direction === 'upstream')
+            this.upstreamDepth = next;
+        else
+            this.downstreamDepth = next;
+        this.postState();
+    }
+    selectNode(id) {
+        if (!this.graph?.nodes.has(id))
+            return;
+        this.selectedId = id;
+        this.postState();
+    }
+    expandNode(id, direction) {
+        if (!this.graph?.nodes.has(id))
+            return;
+        const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
+        const next = {
+            upstream: existing.upstream + (direction === 'upstream' ? 1 : 0),
+            downstream: existing.downstream + (direction === 'downstream' ? 1 : 0)
+        };
+        this.nodeExpansions.set(id, next);
+        this.selectedId = id;
+        this.postState();
     }
     async openNode(id) {
         if (!this.graph)
@@ -157,8 +196,7 @@ class FastLineageViewProvider {
         if (!node)
             return;
         if (node.kind === 'source') {
-            this.focusId = id;
-            this.postState();
+            this.setFocus(id);
             void vscode.window.setStatusBarMessage(`FastLineage: source ${node.label}`, 1500);
             return;
         }
@@ -169,8 +207,7 @@ class FastLineageViewProvider {
         }
         const doc = await vscode.workspace.openTextDocument(openUri);
         await vscode.window.showTextDocument(doc, { preview: false });
-        this.focusId = id;
-        this.postState();
+        this.setFocus(id);
     }
     async resolveNodeUri(kind, relation, hintedPath) {
         if (hintedPath)
@@ -195,14 +232,21 @@ class FastLineageViewProvider {
                 workspaceName: vscode.workspace.name ?? 'workspace',
                 dbtRootHint: this.dbtRootHint,
                 graphStats: { models: 0, sources: 0, seeds: 0, snapshots: 0, edges: 0 },
-                focus: { focusId: this.focusId, depth: this.depth },
+                focus: {
+                    focusId: this.focusId,
+                    selectedId: this.selectedId ?? this.focusId,
+                    upstreamDepth: this.upstreamDepth,
+                    downstreamDepth: this.downstreamDepth
+                },
                 subgraph: { nodes: [], edges: [] },
                 dirtySinceRefresh: this.dirtySinceRefresh
             };
             this.view?.webview.postMessage({ type: 'state', state });
             return;
         }
-        const { nodes, edges } = (0, lineage_1.computeSubgraph)(this.graph, this.focusId, this.depth);
+        const { nodes, edges } = (0, lineage_1.computeSubgraph)(this.graph, this.focusId, this.upstreamDepth, this.downstreamDepth, this.nodeExpansions);
+        const visibleIds = new Set(nodes.map((node) => node.id));
+        const selectedId = this.selectedId && visibleIds.has(this.selectedId) ? this.selectedId : this.focusId;
         let models = 0;
         let sources = 0;
         let seeds = 0;
@@ -229,7 +273,12 @@ class FastLineageViewProvider {
             workspaceName: vscode.workspace.name ?? 'workspace',
             dbtRootHint: this.dbtRootHint,
             graphStats: { models, sources, seeds, snapshots, edges: this.graph.edges.length },
-            focus: { focusId: this.focusId, depth: this.depth },
+            focus: {
+                focusId: this.focusId,
+                selectedId,
+                upstreamDepth: this.upstreamDepth,
+                downstreamDepth: this.downstreamDepth
+            },
             subgraph: { nodes, edges },
             dirtySinceRefresh: this.dirtySinceRefresh
         };

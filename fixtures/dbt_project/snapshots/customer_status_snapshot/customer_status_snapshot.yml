@@ -1,0 +1,31 @@
+version: 2
+
+snapshots:
+  - name: customer_status_snapshot
+    description: "{{ doc('customer_status_snapshot__description') }}"
+    config:
+      target_schema: snapshots
+      strategy: timestamp
+      updated_at: updated_at
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_crm_accounts__record_id') }}"
+        data_type: string
+      - name: dbt_scd_id
+        description: "{{ doc('customer_status_snapshot__dbt_scd_id') }}"
+        data_type: string
+      - name: dbt_valid_from
+        description: "{{ doc('customer_status_snapshot__dbt_valid_from') }}"
+        data_type: timestamp
+      - name: dbt_valid_to
+        description: "{{ doc('customer_status_snapshot__dbt_valid_to') }}"
+        data_type: timestamp
+      - name: updated_at
+        description: "{{ doc('customer_status_snapshot__updated_at') }}"
+        data_type: timestamp
+      - name: status
+        description: "{{ doc('customer_status_snapshot__status') }}"
+        data_type: string
+      - name: semantic_group
+        description: "{{ doc('customer_status_snapshot__semantic_group') }}"
+        data_type: string

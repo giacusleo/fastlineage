@@ -1,12 +1,15 @@
 export type NodeKind = 'model' | 'source' | 'seed' | 'snapshot';
 
 export type LineageNodeId = `${NodeKind}:${string}`;
+export type LineageDirection = 'upstream' | 'downstream';
 
 export type LineageNode = {
   id: LineageNodeId;
   kind: NodeKind;
   label: string;
   filePath?: string;
+  canExpandUpstream?: boolean;
+  canExpandDownstream?: boolean;
 };
 
 export type LineageEdge = {
@@ -23,7 +26,9 @@ export type LineageGraph = {
 
 export type FocusPayload = {
   focusId: LineageNodeId | null;
-  depth: number;
+  selectedId: LineageNodeId | null;
+  upstreamDepth: number;
+  downstreamDepth: number;
 };
 
 export type GraphStats = {

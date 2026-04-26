@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_app_events
+    description: "{{ doc('stg_app_events__description') }}"
+    config:
+      materialized: view
+    tags:
+      - staging
+      - source-aligned
+      - app
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_app_events__record_id') }}"
+        data_type: string
+      - name: loaded_at
+        description: "{{ doc('common_docs__loaded_at') }}"
+        data_type: timestamp
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp

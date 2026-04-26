@@ -1,0 +1,31 @@
+version: 2
+
+snapshots:
+  - name: loyalty_tier_snapshot
+    description: "{{ doc('loyalty_tier_snapshot__description') }}"
+    config:
+      target_schema: snapshots
+      strategy: timestamp
+      updated_at: updated_at
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_loyalty_tiers__record_id') }}"
+        data_type: string
+      - name: dbt_scd_id
+        description: "{{ doc('loyalty_tier_snapshot__dbt_scd_id') }}"
+        data_type: string
+      - name: dbt_valid_from
+        description: "{{ doc('loyalty_tier_snapshot__dbt_valid_from') }}"
+        data_type: timestamp
+      - name: dbt_valid_to
+        description: "{{ doc('loyalty_tier_snapshot__dbt_valid_to') }}"
+        data_type: timestamp
+      - name: updated_at
+        description: "{{ doc('loyalty_tier_snapshot__updated_at') }}"
+        data_type: timestamp
+      - name: status
+        description: "{{ doc('loyalty_tier_snapshot__status') }}"
+        data_type: string
+      - name: semantic_group
+        description: "{{ doc('loyalty_tier_snapshot__semantic_group') }}"
+        data_type: string

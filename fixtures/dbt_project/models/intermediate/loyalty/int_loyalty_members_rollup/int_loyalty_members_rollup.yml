@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: int_loyalty_members_rollup
+    description: "{{ doc('int_loyalty_members_rollup__description') }}"
+    config:
+      materialized: table
+    tags:
+      - intermediate
+      - rollup
+      - loyalty
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_loyalty_members__record_id') }}"
+        data_type: string
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp
+      - name: model_layer
+        description: "{{ doc('common_docs__model_layer') }}"
+        data_type: string

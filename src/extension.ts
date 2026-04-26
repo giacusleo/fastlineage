@@ -2,15 +2,17 @@ import * as vscode from 'vscode';
 import {
   buildGraphFromWorkspace,
   computeSubgraph,
-  nodeKindFromPath,
+  NodeExpansion,
   relationNameFromPath
 } from './lineage';
-import { LineageGraph, LineageNodeId, NodeKind, WebviewState } from './types';
+import { LineageDirection, LineageGraph, LineageNodeId, NodeKind, WebviewState } from './types';
 
 type WebviewInbound =
   | { type: 'refresh' }
   | { type: 'openNode'; id: LineageNodeId }
-  | { type: 'setDepth'; depth: number }
+  | { type: 'selectNode'; id: LineageNodeId }
+  | { type: 'expandNode'; id: LineageNodeId; direction: LineageDirection }
+  | { type: 'setDepth'; direction: LineageDirection; depth: number }
   | { type: 'revealActive' };
 
 const EXCLUDE_GLOB = '**/{target,dbt_packages,node_modules}/**';
@@ -30,7 +32,6 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => provider.revealActiveModel(false)),
     vscode.workspace.onDidSaveTextDocument(() => provider.onMaybeDirtyChanged()),
     vscode.workspace.onDidChangeTextDocument(() => provider.onMaybeDirtyChanged())
   );
@@ -47,7 +48,10 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
   private durationMs = 0;
   private dbtRootHint: string | null = null;
   private focusId: LineageNodeId | null = null;
-  private depth = 2;
+  private selectedId: LineageNodeId | null = null;
+  private upstreamDepth = 2;
+  private downstreamDepth = 2;
+  private nodeExpansions = new Map<LineageNodeId, NodeExpansion>();
   private dirtySinceRefresh = false;
   private refreshInFlight: Promise<void> | null = null;
 
@@ -121,9 +125,8 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
 
     const relation = relationNameFromPath(editor.document.uri.fsPath);
     const id = `${kind}:${relation}` as LineageNodeId;
-    if (!forceFocus && this.focusId === id) return;
-    this.focusId = id;
-    this.postState();
+    if (!forceFocus && this.focusId === id && this.selectedId === id) return;
+    this.setFocus(id);
   }
 
   private async onMessage(msg: WebviewInbound) {
@@ -132,16 +135,53 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
         await this.refresh(true);
         return;
       case 'setDepth':
-        this.depth = Math.max(1, Math.min(8, Math.floor(msg.depth)));
-        this.postState();
+        this.setDirectionalDepth(msg.direction, msg.depth);
         return;
       case 'revealActive':
         this.revealActiveModel(true);
+        return;
+      case 'selectNode':
+        this.selectNode(msg.id);
+        return;
+      case 'expandNode':
+        this.expandNode(msg.id, msg.direction);
         return;
       case 'openNode':
         await this.openNode(msg.id);
         return;
     }
+  }
+
+  private setFocus(id: LineageNodeId) {
+    this.focusId = id;
+    this.selectedId = id;
+    this.nodeExpansions.clear();
+    this.postState();
+  }
+
+  private setDirectionalDepth(direction: LineageDirection, depth: number) {
+    const next = Math.max(0, Math.min(8, Math.floor(depth)));
+    if (direction === 'upstream') this.upstreamDepth = next;
+    else this.downstreamDepth = next;
+    this.postState();
+  }
+
+  private selectNode(id: LineageNodeId) {
+    if (!this.graph?.nodes.has(id)) return;
+    this.selectedId = id;
+    this.postState();
+  }
+
+  private expandNode(id: LineageNodeId, direction: LineageDirection) {
+    if (!this.graph?.nodes.has(id)) return;
+    const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
+    const next = {
+      upstream: existing.upstream + (direction === 'upstream' ? 1 : 0),
+      downstream: existing.downstream + (direction === 'downstream' ? 1 : 0)
+    };
+    this.nodeExpansions.set(id, next);
+    this.selectedId = id;
+    this.postState();
   }
 
   private async openNode(id: LineageNodeId) {
@@ -150,8 +190,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     if (!node) return;
 
     if (node.kind === 'source') {
-      this.focusId = id;
-      this.postState();
+      this.setFocus(id);
       void vscode.window.setStatusBarMessage(`FastLineage: source ${node.label}`, 1500);
       return;
     }
@@ -164,8 +203,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
 
     const doc = await vscode.workspace.openTextDocument(openUri);
     await vscode.window.showTextDocument(doc, { preview: false });
-    this.focusId = id;
-    this.postState();
+    this.setFocus(id);
   }
 
   private async resolveNodeUri(kind: NodeKind, relation: string, hintedPath?: string): Promise<vscode.Uri | null> {
@@ -194,7 +232,12 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
         workspaceName: vscode.workspace.name ?? 'workspace',
         dbtRootHint: this.dbtRootHint,
         graphStats: { models: 0, sources: 0, seeds: 0, snapshots: 0, edges: 0 },
-        focus: { focusId: this.focusId, depth: this.depth },
+        focus: {
+          focusId: this.focusId,
+          selectedId: this.selectedId ?? this.focusId,
+          upstreamDepth: this.upstreamDepth,
+          downstreamDepth: this.downstreamDepth
+        },
         subgraph: { nodes: [], edges: [] },
         dirtySinceRefresh: this.dirtySinceRefresh
       };
@@ -202,7 +245,16 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { nodes, edges } = computeSubgraph(this.graph, this.focusId, this.depth);
+    const { nodes, edges } = computeSubgraph(
+      this.graph,
+      this.focusId,
+      this.upstreamDepth,
+      this.downstreamDepth,
+      this.nodeExpansions
+    );
+    const visibleIds = new Set(nodes.map((node) => node.id));
+    const selectedId = this.selectedId && visibleIds.has(this.selectedId) ? this.selectedId : this.focusId;
+
     let models = 0;
     let sources = 0;
     let seeds = 0;
@@ -231,7 +283,12 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
       workspaceName: vscode.workspace.name ?? 'workspace',
       dbtRootHint: this.dbtRootHint,
       graphStats: { models, sources, seeds, snapshots, edges: this.graph.edges.length },
-      focus: { focusId: this.focusId, depth: this.depth },
+      focus: {
+        focusId: this.focusId,
+        selectedId,
+        upstreamDepth: this.upstreamDepth,
+        downstreamDepth: this.downstreamDepth
+      },
       subgraph: { nodes, edges },
       dirtySinceRefresh: this.dirtySinceRefresh
     };

@@ -1,0 +1,28 @@
+version: 2
+
+snapshots:
+  - name: warehouse_stock_snapshot
+    description: "{{ doc('warehouse_stock_snapshot__description') }}"
+    config:
+      target_schema: snapshots
+      strategy: timestamp
+      updated_at: updated_at
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_inventory_stock_levels__record_id') }}"
+        data_type: string
+      - name: dbt_scd_id
+        description: "{{ doc('warehouse_stock_snapshot__dbt_scd_id') }}"
+        data_type: string
+      - name: dbt_valid_from
+        description: "{{ doc('warehouse_stock_snapshot__dbt_valid_from') }}"
+        data_type: timestamp
+      - name: dbt_valid_to
+        description: "{{ doc('warehouse_stock_snapshot__dbt_valid_to') }}"
+        data_type: timestamp
+      - name: updated_at
+        description: "{{ doc('warehouse_stock_snapshot__updated_at') }}"
+        data_type: timestamp
+      - name: semantic_group
+        description: "{{ doc('warehouse_stock_snapshot__semantic_group') }}"
+        data_type: string

@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: fct_support_tickets
+    description: "{{ doc('fct_support_tickets__description') }}"
+    config:
+      materialized: table
+    tags:
+      - marts
+      - fact
+      - fact-model
+      - fct_support_tickets
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_support_tickets__record_id') }}"
+        data_type: string
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp
+      - name: metric_value
+        description: "{{ doc('fct_support_tickets__metric_value') }}"
+        data_type: numeric
+      - name: metric_unit
+        description: "{{ doc('fct_support_tickets__metric_unit') }}"
+        data_type: string

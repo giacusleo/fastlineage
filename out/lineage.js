@@ -166,37 +166,57 @@ async function buildGraphFromWorkspace() {
         dbtRootHint: dbtRoot?.fsPath ?? null
     };
 }
-function computeSubgraph(graph, focus, depth) {
+function walkDirection(graph, start, direction, depth, keep) {
+    if (depth <= 0)
+        return;
+    const adjacency = direction === 'upstream' ? graph.deps : graph.rdeps;
+    const queue = [{ id: start, d: 0 }];
+    const seen = new Map([[start, 0]]);
+    while (queue.length) {
+        const current = queue.shift();
+        if (!current || current.d >= depth)
+            continue;
+        for (const next of adjacency.get(current.id) || []) {
+            const nextDepth = current.d + 1;
+            const seenDepth = seen.get(next);
+            if (seenDepth !== undefined && seenDepth <= nextDepth)
+                continue;
+            seen.set(next, nextDepth);
+            keep.add(next);
+            queue.push({ id: next, d: nextDepth });
+        }
+    }
+}
+function computeSubgraph(graph, focus, upstreamDepth, downstreamDepth, expansions = new Map()) {
     if (!focus || !graph.nodes.has(focus)) {
         return { nodes: [], edges: [] };
     }
     const keep = new Set([focus]);
-    const queue = [{ id: focus, d: 0 }];
-    while (queue.length) {
-        const { id, d } = queue.shift();
-        if (d >= depth)
-            continue;
-        const up = graph.deps.get(id);
-        if (up) {
-            for (const next of up) {
-                if (!keep.has(next)) {
-                    keep.add(next);
-                    queue.push({ id: next, d: d + 1 });
-                }
-            }
-        }
-        const down = graph.rdeps.get(id);
-        if (down) {
-            for (const next of down) {
-                if (!keep.has(next)) {
-                    keep.add(next);
-                    queue.push({ id: next, d: d + 1 });
-                }
-            }
+    walkDirection(graph, focus, 'upstream', upstreamDepth, keep);
+    walkDirection(graph, focus, 'downstream', downstreamDepth, keep);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const [origin, expansion] of expansions) {
+            if (!keep.has(origin))
+                continue;
+            const before = keep.size;
+            walkDirection(graph, origin, 'upstream', expansion.upstream, keep);
+            walkDirection(graph, origin, 'downstream', expansion.downstream, keep);
+            if (keep.size !== before)
+                changed = true;
         }
     }
     const nodes = Array.from(keep)
-        .map((id) => graph.nodes.get(id))
+        .map((id) => {
+        const node = graph.nodes.get(id);
+        if (!node)
+            return null;
+        const canExpandUpstream = Array.from(graph.deps.get(id) || []).some((dep) => !keep.has(dep));
+        const canExpandDownstream = Array.from(graph.rdeps.get(id) || []).some((dep) => !keep.has(dep));
+        const viewNode = { ...node, canExpandUpstream, canExpandDownstream };
+        return viewNode;
+    })
         .filter((node) => !!node);
     const keptEdges = graph.edges.filter((edge) => keep.has(edge.from) && keep.has(edge.to));
     return { nodes, edges: keptEdges };

@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: mart_exec_revenue
+    description: "{{ doc('mart_exec_revenue__description') }}"
+    config:
+      materialized: view
+    tags:
+      - marts
+      - presentation
+      - semantic
+      - mart_exec_revenue
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_billing_invoices__record_id') }}"
+        data_type: string
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp
+      - name: reporting_group
+        description: "{{ doc('mart_exec_revenue__reporting_group') }}"
+        data_type: string

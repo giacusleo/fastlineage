@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: dim_subscription
+    description: "{{ doc('dim_subscription__description') }}"
+    config:
+      materialized: table
+    tags:
+      - marts
+      - dimension
+      - dimension-model
+      - dim_subscription
+    columns:
+      - name: record_id
+        description: "{{ doc('stg_billing_subscriptions__record_id') }}"
+        data_type: string
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp
+      - name: dimension_key
+        description: "{{ doc('dim_subscription__dimension_key') }}"
+        data_type: string

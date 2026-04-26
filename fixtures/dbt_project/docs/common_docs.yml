@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: common_docs
+    description: "Shared documentation anchors for repeated fixture columns."
+    columns:
+      - name: source_system
+        description: "{{ doc('common_docs__source_system') }}"
+        data_type: string
+      - name: entity_name
+        description: "{{ doc('common_docs__entity_name') }}"
+        data_type: string
+      - name: modeled_at
+        description: "{{ doc('common_docs__modeled_at') }}"
+        data_type: timestamp
+      - name: loaded_at
+        description: "{{ doc('common_docs__loaded_at') }}"
+        data_type: timestamp
+      - name: model_layer
+        description: "{{ doc('common_docs__model_layer') }}"
+        data_type: string
+      - name: transformed_at
+        description: "{{ doc('common_docs__transformed_at') }}"
+        data_type: timestamp

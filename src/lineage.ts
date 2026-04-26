@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { parseDbtRefs } from './parser';
-import { LineageEdge, LineageGraph, LineageNode, LineageNodeId, NodeKind } from './types';
+import { LineageDirection, LineageEdge, LineageGraph, LineageNode, LineageNodeId, NodeKind } from './types';
 
 const TEXT_DECODER = new TextDecoder('utf-8');
 const EXCLUDE_GLOB = '**/{target,dbt_packages,node_modules}/**';
@@ -9,6 +9,11 @@ const EXCLUDE_GLOB = '**/{target,dbt_packages,node_modules}/**';
 type RelationInfo = {
   kind: NodeKind;
   filePath?: string;
+};
+
+export type NodeExpansion = {
+  upstream: number;
+  downstream: number;
 };
 
 function nodeId(kind: NodeKind, name: string): LineageNodeId {
@@ -151,41 +156,62 @@ export async function buildGraphFromWorkspace(): Promise<BuildResult> {
   };
 }
 
-export function computeSubgraph(graph: LineageGraph, focus: LineageNodeId | null, depth: number) {
+function walkDirection(graph: LineageGraph, start: LineageNodeId, direction: LineageDirection, depth: number, keep: Set<LineageNodeId>) {
+  if (depth <= 0) return;
+  const adjacency = direction === 'upstream' ? graph.deps : graph.rdeps;
+  const queue: { id: LineageNodeId; d: number }[] = [{ id: start, d: 0 }];
+  const seen = new Map<LineageNodeId, number>([[start, 0]]);
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || current.d >= depth) continue;
+    for (const next of adjacency.get(current.id) || []) {
+      const nextDepth = current.d + 1;
+      const seenDepth = seen.get(next);
+      if (seenDepth !== undefined && seenDepth <= nextDepth) continue;
+      seen.set(next, nextDepth);
+      keep.add(next);
+      queue.push({ id: next, d: nextDepth });
+    }
+  }
+}
+
+export function computeSubgraph(
+  graph: LineageGraph,
+  focus: LineageNodeId | null,
+  upstreamDepth: number,
+  downstreamDepth: number,
+  expansions: Map<LineageNodeId, NodeExpansion> = new Map()
+) {
   if (!focus || !graph.nodes.has(focus)) {
     return { nodes: [] as LineageNode[], edges: [] as LineageEdge[] };
   }
 
   const keep = new Set<LineageNodeId>([focus]);
-  const queue: { id: LineageNodeId; d: number }[] = [{ id: focus, d: 0 }];
+  walkDirection(graph, focus, 'upstream', upstreamDepth, keep);
+  walkDirection(graph, focus, 'downstream', downstreamDepth, keep);
 
-  while (queue.length) {
-    const { id, d } = queue.shift()!;
-    if (d >= depth) continue;
-
-    const up = graph.deps.get(id);
-    if (up) {
-      for (const next of up) {
-        if (!keep.has(next)) {
-          keep.add(next);
-          queue.push({ id: next, d: d + 1 });
-        }
-      }
-    }
-
-    const down = graph.rdeps.get(id);
-    if (down) {
-      for (const next of down) {
-        if (!keep.has(next)) {
-          keep.add(next);
-          queue.push({ id: next, d: d + 1 });
-        }
-      }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [origin, expansion] of expansions) {
+      if (!keep.has(origin)) continue;
+      const before = keep.size;
+      walkDirection(graph, origin, 'upstream', expansion.upstream, keep);
+      walkDirection(graph, origin, 'downstream', expansion.downstream, keep);
+      if (keep.size !== before) changed = true;
     }
   }
 
   const nodes = Array.from(keep)
-    .map((id) => graph.nodes.get(id))
+    .map((id) => {
+      const node = graph.nodes.get(id);
+      if (!node) return null;
+      const canExpandUpstream = Array.from(graph.deps.get(id) || []).some((dep) => !keep.has(dep));
+      const canExpandDownstream = Array.from(graph.rdeps.get(id) || []).some((dep) => !keep.has(dep));
+      const viewNode: LineageNode = { ...node, canExpandUpstream, canExpandDownstream };
+      return viewNode;
+    })
     .filter((node): node is LineageNode => !!node);
 
   const keptEdges = graph.edges.filter((edge) => keep.has(edge.from) && keep.has(edge.to));
