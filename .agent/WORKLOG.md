@@ -2,7 +2,7 @@
 
 ## 2026-04-26
 
-- Added `notes/` folder to keep context/decisions/logs in one place.
+- Added agent notes to keep context, decisions, and logs in one place.
 - Implemented webview UX updates (depth controls + node card styling + conditional expand visibility).
 - Combined upstream/downstream depth into a single toolbar control with “Depth” centered.
 - Restructured the dbt fixture into per-model folders with `.sql`, `.yml`, and `.md` docs blocks.

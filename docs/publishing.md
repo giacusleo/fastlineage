@@ -20,4 +20,3 @@ This extension uses `@vscode/vsce` for packaging and publishing.
 ## Notes
 - Each publish requires a new `version` in `package.json`.
 - `node_modules/`, `.DS_Store`, and dbt-generated fixture outputs are ignored and won’t be published.
-

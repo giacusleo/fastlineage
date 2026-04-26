@@ -2,12 +2,12 @@
 
 # dev-only / repo-only
 .vscode/**
+.agent/**
+docs/**
 src/**
 scripts/**
-notes/**
 fixtures/**
 .gitignore
-PUBLISHING.md
 
 # build / tooling
 node_modules/**
