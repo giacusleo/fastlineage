@@ -8,7 +8,6 @@
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/fixtures/dbt_project"
       ],
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"
