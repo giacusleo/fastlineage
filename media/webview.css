@@ -31,7 +31,7 @@ body {
   --graph-wrap-pad: 18px;
   --node-w: 272px;
   --node-min-h: 108px;
-  --node-title-size: 15px;
+  --node-title-size: 18px;
   --node-domain-size: 10px;
   height: 100%;
   display: flex;
@@ -92,6 +92,16 @@ button.primary:hover {
   background: var(--btn-bg-hover);
 }
 
+button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+button:disabled:hover {
+  background: var(--btn-bg);
+  border-color: transparent;
+}
+
 .depthControl {
   display: inline-flex;
   align-items: center;
@@ -143,6 +153,33 @@ button.primary:hover {
   background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 20%, transparent);
   border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground) 38%, transparent);
   color: var(--vscode-editorWarning-foreground);
+}
+
+.pill.loading {
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--fg) 88%, var(--accent));
+}
+
+.pill.loading::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: fastlineage-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes fastlineage-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.78);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .graphWrap {
@@ -204,6 +241,7 @@ button.primary:hover {
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.94;
+  transition: opacity 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
 }
 
 .edge.focus {
@@ -211,26 +249,37 @@ button.primary:hover {
   stroke-width: 1.95;
 }
 
+.edge.activePath {
+  opacity: 0.96;
+}
+
+.edge.dimmed {
+  stroke: color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+  stroke-width: 1.2;
+  opacity: 0.24;
+}
+
 .nodeCard {
   --tone: #7dc4d7;
   position: absolute;
   width: var(--node-w);
+  height: var(--node-min-h);
   min-height: var(--node-min-h);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 0;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--tone) 16%, var(--border));
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--tone) 20%, var(--border));
   background:
-    linear-gradient(180deg, color-mix(in srgb, white 5%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-elevated) 92%, transparent), color-mix(in srgb, var(--panel) 96%, transparent));
+    linear-gradient(180deg, color-mix(in srgb, white 3%, transparent), transparent 42%),
+    color-mix(in srgb, var(--panel) 94%, var(--bg) 6%);
   box-shadow:
-    0 14px 32px color-mix(in srgb, black 24%, transparent),
-    inset 0 1px 0 color-mix(in srgb, white 5%, transparent);
+    0 10px 24px color-mix(in srgb, black 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
   user-select: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 
 .nodeCard.anchor {
@@ -240,8 +289,8 @@ button.primary:hover {
 .nodeCard.selected {
   border-color: color-mix(in srgb, var(--accent) 72%, var(--tone));
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 58%, transparent),
-    0 22px 42px color-mix(in srgb, black 32%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 52%, transparent),
+    0 14px 30px color-mix(in srgb, black 24%, transparent);
 }
 
 .nodeCard.draggable {
@@ -250,89 +299,197 @@ button.primary:hover {
 
 .nodeCard.draggable:hover {
   border-color: color-mix(in srgb, var(--tone) 55%, var(--border));
-  box-shadow: 0 16px 34px color-mix(in srgb, black 26%, transparent);
+  box-shadow: 0 12px 26px color-mix(in srgb, black 20%, transparent);
 }
 
 .nodeCard.dragging {
   cursor: grabbing;
-  box-shadow: 0 18px 42px color-mix(in srgb, black 30%, transparent);
+  box-shadow: 0 16px 34px color-mix(in srgb, black 26%, transparent);
+}
+
+.nodeCard.tone-deprecating,
+.nodeCard.tone-deprecated {
+  border-color: color-mix(in srgb, var(--tone) 48%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--tone) 12%, transparent), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, white 3%, transparent), transparent 42%),
+    color-mix(in srgb, var(--panel) 94%, var(--bg) 6%);
+}
+
+.nodeCard.tone-deprecating::before,
+.nodeCard.tone-deprecated::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: -1px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--tone);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 36%, transparent);
+}
+
+.nodeCard.tone-deprecated {
+  box-shadow:
+    0 10px 24px color-mix(in srgb, black 18%, transparent),
+    0 0 0 1px color-mix(in srgb, #ff6573 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
+}
+
+.nodeCard.activePath {
+  opacity: 1;
+  filter: none;
+}
+
+.nodeCard.dimmed {
+  opacity: 0.46;
+  filter: grayscale(0.72) saturate(0.45) brightness(0.78);
+  box-shadow:
+    0 8px 18px color-mix(in srgb, black 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 3%, transparent);
+}
+
+.nodeCard.dimmed:hover {
+  opacity: 0.58;
+  filter: grayscale(0.55) saturate(0.55) brightness(0.84);
+}
+
+.nodeCard.overflow {
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--tone) 7%, transparent), transparent 48%),
+    color-mix(in srgb, var(--panel) 88%, var(--bg) 12%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 4%, transparent),
+    0 8px 18px color-mix(in srgb, black 12%, transparent);
+  cursor: default;
+}
+
+.nodeCard.overflow .nodeIdentity {
+  grid-template-columns: minmax(0, 1fr);
+  padding-right: 13px;
+}
+
+.nodeCard.overflow .nodeFooter {
+  padding: 0 13px;
+}
+
+.nodeFocus {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone) 18%, transparent);
+  background: color-mix(in srgb, var(--panel-elevated) 88%, transparent);
+  color: color-mix(in srgb, var(--fg) 58%, transparent);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 700;
+  opacity: 0.48;
+  transform: translateY(-1px);
+}
+
+.nodeFocus::before,
+.nodeFocus::after {
+  content: '';
+  box-sizing: border-box;
+}
+
+.nodeFocus::before {
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.nodeFocus::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.nodeCard:hover .nodeFocus,
+.nodeCard:focus-within .nodeFocus {
+  opacity: 1;
+}
+
+.nodeFocus:hover {
+  border-color: color-mix(in srgb, var(--tone) 42%, transparent);
+  background: color-mix(in srgb, var(--tone) 14%, var(--panel-elevated));
+  color: color-mix(in srgb, var(--fg) 86%, var(--tone));
 }
 
 .nodeIdentity {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 15px 12px;
+  height: 58px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 10px;
+  padding: 8px 42px 5px 13px;
   border-bottom: 1px solid color-mix(in srgb, var(--tone) 12%, var(--border));
 }
 
-.nodeTitleWrap {
-  flex: 1;
-  min-width: 0;
+.nodeMark {
+  width: 38px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
-.nodeTitleMeta {
+.nodeTitleWrap {
+  width: 100%;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 7px;
+  align-items: flex-start;
+  overflow: hidden;
 }
 
 .nodeChip {
   display: inline-flex;
   align-items: center;
-  padding: 4px 9px;
-  border-radius: 999px;
+  justify-content: center;
+  width: 36px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0;
+  border-radius: 5px;
   border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
-  background: color-mix(in srgb, var(--tone) 13%, transparent);
+  background: color-mix(in srgb, var(--panel-elevated) 78%, transparent);
   color: color-mix(in srgb, var(--tone) 76%, white 16%);
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-
-.nodeDomain {
-  color: color-mix(in srgb, var(--muted) 86%, white 8%);
-  font-size: var(--node-domain-size);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .nodeName {
+  width: 100%;
+  min-width: 0;
   color: var(--fg);
   font-size: var(--node-title-size);
   font-weight: 700;
-  line-height: 1.24;
-  overflow: hidden;
+  line-height: 1.04;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-}
-
-.nodeIcon {
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 11px;
-  border: 1px solid color-mix(in srgb, var(--tone) 26%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--tone) 18%, transparent), color-mix(in srgb, var(--tone) 8%, transparent));
-  color: color-mix(in srgb, var(--tone) 86%, white 10%);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
-}
-
-.nodeIconGlyph {
-  width: 21px;
-  height: 21px;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
 }
 
 .emptyState {
@@ -383,8 +540,40 @@ button.primary:hover {
   --tone: #f3c969;
 }
 
+.tone-analysis {
+  --tone: #c7d0dc;
+}
+
+.tone-exposure {
+  --tone: #f08f78;
+}
+
+.tone-semantic {
+  --tone: #b48cff;
+}
+
+.tone-metric {
+  --tone: #6ddfc4;
+}
+
+.tone-saved {
+  --tone: #9cc9ff;
+}
+
 .tone-model {
   --tone: #7dc4d7;
+}
+
+.tone-overflow {
+  --tone: #d6bd72;
+}
+
+.tone-deprecating {
+  --tone: #f0b84a;
+}
+
+.tone-deprecated {
+  --tone: #ff6573;
 }
 
 .depthControl.directional {
@@ -392,11 +581,13 @@ button.primary:hover {
 }
 
 .nodeFooter {
+  height: 26px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 15px 12px;
+  padding: 0 38px;
 }
 
 .nodeFacts {
@@ -412,7 +603,7 @@ button.primary:hover {
   padding: 4px 9px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--tone) 22%, transparent);
-  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  background: color-mix(in srgb, var(--panel-elevated) 78%, transparent);
   color: color-mix(in srgb, var(--fg) 90%, var(--tone));
   font-size: 10px;
   font-weight: 700;
@@ -442,16 +633,68 @@ button.primary:hover {
   color: color-mix(in srgb, var(--tone) 82%, white 10%);
 }
 
-.nodeActions {
+.nodeOverflowAction {
+  height: 20px;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--tone) 44%, transparent);
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  color: color-mix(in srgb, var(--fg) 92%, var(--tone));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.nodeFooter.overflowActions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.nodeOverflowAction:hover {
+  border-color: color-mix(in srgb, var(--tone) 62%, transparent);
+  background: color-mix(in srgb, var(--tone) 26%, transparent);
+}
+
+.nodeContextMenu {
+  position: fixed;
+  z-index: 100;
+  min-width: 178px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--fg) 12%);
+  background: color-mix(in srgb, var(--panel-elevated) 96%, black 4%);
+  box-shadow: 0 14px 34px color-mix(in srgb, black 34%, transparent);
+}
+
+.nodeContextMenuItem {
+  width: 100%;
+  height: 30px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+}
+
+.nodeContextMenuItem:hover,
+.nodeContextMenuItem:focus-visible {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  outline: 0;
 }
 
 .nodeExpander {
-  width: 22px;
-  height: 22px;
+  position: absolute;
+  bottom: 3px;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -461,12 +704,56 @@ button.primary:hover {
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: color-mix(in srgb, var(--tone) 70%, white 18%);
   font-size: 13px;
+  line-height: 1;
   font-weight: 600;
+}
+
+.nodeExpandCount {
+  position: absolute;
+  top: -8px;
+  min-width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone) 44%, var(--panel));
+  background: color-mix(in srgb, var(--panel-elevated) 86%, var(--tone) 14%);
+  color: color-mix(in srgb, var(--fg) 92%, var(--tone));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 4px 10px color-mix(in srgb, black 22%, transparent);
+  pointer-events: none;
+}
+
+.nodeExpander.upstream .nodeExpandCount {
+  right: -8px;
+}
+
+.nodeExpander.downstream .nodeExpandCount {
+  left: -8px;
+}
+
+.nodeExpander.upstream {
+  left: 8px;
+}
+
+.nodeExpander.downstream {
+  right: 8px;
 }
 
 .nodeExpander:hover {
   border-color: color-mix(in srgb, var(--tone) 58%, transparent);
   background: color-mix(in srgb, var(--tone) 22%, transparent);
+}
+
+.nodeExpander.isCollapse {
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 76%, white 18%);
 }
 
 .nodeExpander.isHidden {

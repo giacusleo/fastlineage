@@ -30,4 +30,4 @@ This repo also includes a GitHub Actions workflow that builds a `.vsix` automati
 
 ## Notes
 - Each publish requires a new `version` in `package.json`.
-- `node_modules/`, `.DS_Store`, and dbt-generated fixture outputs are ignored and won’t be published.
+- `node_modules/`, `.DS_Store`, and local dbt-generated outputs are ignored and won’t be published.

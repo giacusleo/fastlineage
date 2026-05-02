@@ -10,10 +10,16 @@ yarn-error.log*
 ## VS Code
 .vscode/
 
+## Agent local notes
+agent.md
+.agent/CONTEXT.md
+.agent/WORKLOG.md
+copy.md
+
 ## Extension build artifacts
+out/
 *.vsix
 
-## dbt-generated (fixtures)
-fixtures/dbt_project/logs/
-fixtures/dbt_project/target/
-
+## Local dbt-generated artifacts
+**/logs/
+**/target/

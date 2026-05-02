@@ -1,21 +1,34 @@
 import * as vscode from 'vscode';
 import {
+  DbtProjectConfig,
+  EXCLUDE_GLOB,
+  findFilesInProjectPaths,
+  isDbtLineageDocumentPath,
+  lineageNodeIdFromPath,
+  sameFilePath
+} from './dbt';
+import {
+  BuildResult,
   buildGraphFromWorkspace,
   computeSubgraph,
-  NodeExpansion,
-  relationNameFromPath
+  EXPANSION_VISIBLE_LIMIT,
+  graphStats,
+  NodeExpansion
 } from './lineage';
-import { LineageDirection, LineageGraph, LineageNodeId, NodeKind, WebviewState } from './types';
+import { LineageDirection, LineageGraph, LineageNodeId, NodeKind, RefreshStage, WebviewState } from './types';
 
 type WebviewInbound =
   | { type: 'refresh' }
   | { type: 'openNode'; id: LineageNodeId }
+  | { type: 'focusNode'; id: LineageNodeId }
   | { type: 'selectNode'; id: LineageNodeId }
   | { type: 'expandNode'; id: LineageNodeId; direction: LineageDirection }
+  | { type: 'showMoreExpansion'; id: LineageNodeId; direction: LineageDirection }
+  | { type: 'showAllExpansion'; id: LineageNodeId; direction: LineageDirection }
+  | { type: 'collapseNode'; id: LineageNodeId; direction: LineageDirection }
+  | { type: 'hideNode'; id: LineageNodeId }
   | { type: 'setDepth'; direction: LineageDirection; depth: number }
   | { type: 'revealActive' };
-
-const EXCLUDE_GLOB = '**/{target,dbt_packages,node_modules}/**';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new FastLineageViewProvider(context);
@@ -32,8 +45,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(() => provider.onMaybeDirtyChanged()),
-    vscode.workspace.onDidChangeTextDocument(() => provider.onMaybeDirtyChanged())
+    vscode.workspace.onDidSaveTextDocument((doc) => provider.onLineageDocumentChanged(doc)),
+    vscode.workspace.onDidChangeTextDocument((event) => provider.onLineageDocumentChanged(event.document))
   );
 }
 
@@ -47,13 +60,16 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
   private refreshedAtMs: number | null = null;
   private durationMs = 0;
   private dbtRootHint: string | null = null;
+  private dbtProject: DbtProjectConfig | null = null;
   private focusId: LineageNodeId | null = null;
   private selectedId: LineageNodeId | null = null;
   private upstreamDepth = 1;
   private downstreamDepth = 1;
   private nodeExpansions = new Map<LineageNodeId, NodeExpansion>();
+  private hiddenNodeIds = new Set<LineageNodeId>();
   private dirtySinceRefresh = false;
   private refreshInFlight: Promise<void> | null = null;
+  private refreshStage: RefreshStage = 'idle';
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -72,7 +88,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     });
 
     void this.refresh(false);
-    this.revealActiveModel(false);
+    void this.revealActiveModel(false);
   }
 
   async refresh(userInitiated: boolean) {
@@ -80,20 +96,34 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
 
     this.refreshInFlight = (async () => {
       try {
-        const result = await buildGraphFromWorkspace();
-        this.graph = result.graph;
-        this.refreshedAtMs = result.refreshedAtMs;
-        this.durationMs = result.durationMs;
-        this.dbtRootHint = result.dbtRootHint;
-        this.onMaybeDirtyChanged();
+        const activePath = this.activeEditorPath();
+        this.refreshStage = 'active-project';
+        this.postState();
+
+        const primaryResult = await buildGraphFromWorkspace(activePath, { scope: 'primary' });
+        this.applyBuildResult(primaryResult);
+        this.refreshStage = 'workspace';
         this.postState();
         if (userInitiated) {
-          void vscode.window.setStatusBarMessage('FastLineage: refreshed', 1500);
+          void vscode.window.setStatusBarMessage('FastLineage: active project loaded, building workspace...', 2500);
+        }
+
+        try {
+          const workspaceResult = await buildGraphFromWorkspace(activePath, { scope: 'workspace' });
+          this.applyBuildResult(workspaceResult);
+          if (userInitiated) {
+            void vscode.window.setStatusBarMessage('FastLineage: refreshed', 1500);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(`FastLineage workspace refresh failed: ${message}`);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`FastLineage refresh failed: ${message}`);
       } finally {
+        this.refreshStage = 'idle';
+        this.postState();
         this.refreshInFlight = null;
       }
     })();
@@ -101,32 +131,59 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     return this.refreshInFlight;
   }
 
-  onMaybeDirtyChanged() {
-    const prev = this.dirtySinceRefresh;
-    this.dirtySinceRefresh = vscode.workspace.textDocuments.some((doc) => {
-      if (!doc.isDirty) return false;
-      const normalized = doc.uri.fsPath.replace(/\\/g, '/');
-      return normalized.endsWith('.sql') && (normalized.includes('/models/') || normalized.includes('/snapshots/'));
-    });
-    if (prev !== this.dirtySinceRefresh) this.postState();
+  private applyBuildResult(result: BuildResult) {
+    this.graph = result.graph;
+    this.refreshedAtMs = result.refreshedAtMs;
+    this.durationMs = result.durationMs;
+    this.dbtRootHint = result.dbtRootHint;
+    this.dbtProject = result.project;
+    this.dirtySinceRefresh = false;
+    if (!this.focusId || !this.graph.nodes.has(this.focusId)) {
+      this.focusActiveEditorDocument(false);
+    }
   }
 
-  revealActiveModel(forceFocus = true) {
+  onLineageDocumentChanged(doc: vscode.TextDocument) {
+    if (!this.graph || this.dirtySinceRefresh) return;
+    if (!this.nodeIdForDocument(doc.uri) && !isDbtLineageDocumentPath(doc.uri.fsPath, this.dbtProject)) return;
+
+    this.dirtySinceRefresh = true;
+    this.postState();
+  }
+
+  async revealActiveModel(forceFocus = true) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
 
-    const normalized = editor.document.uri.fsPath.replace(/\\/g, '/');
-    let kind: NodeKind | null = null;
-    if (normalized.endsWith('.sql') && normalized.includes('/models/')) kind = 'model';
-    else if (normalized.endsWith('.sql') && normalized.includes('/snapshots/')) kind = 'snapshot';
-    else if ((normalized.endsWith('.csv') || normalized.endsWith('.tsv')) && normalized.includes('/seeds/')) kind = 'seed';
+    if (this.focusActiveEditorDocument(forceFocus)) return;
 
-    if (!kind) return;
+    await this.refresh(false);
+    this.focusActiveEditorDocument(forceFocus);
+  }
 
-    const relation = relationNameFromPath(editor.document.uri.fsPath);
-    const id = `${kind}:${relation}` as LineageNodeId;
-    if (!forceFocus && this.focusId === id && this.selectedId === id) return;
+  private focusActiveEditorDocument(forceFocus = true): boolean {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return false;
+
+    const id = this.nodeIdForDocument(editor.document.uri);
+    if (!id) return false;
+    if (!forceFocus && this.focusId === id && this.selectedId === id) return true;
     this.setFocus(id);
+    return true;
+  }
+
+  private activeEditorPath(): string | undefined {
+    return vscode.window.activeTextEditor?.document.uri.fsPath;
+  }
+
+  private nodeIdForDocument(uri: vscode.Uri): LineageNodeId | null {
+    if (this.graph) {
+      for (const node of this.graph.nodes.values()) {
+        if (node.filePath && sameFilePath(node.filePath, uri.fsPath)) return node.id;
+      }
+    }
+
+    return lineageNodeIdFromPath(uri.fsPath, this.dbtProject);
   }
 
   private async onMessage(msg: WebviewInbound) {
@@ -138,7 +195,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
         this.setDirectionalDepth(msg.direction, msg.depth);
         return;
       case 'revealActive':
-        this.revealActiveModel(true);
+        await this.revealActiveModel(true);
         return;
       case 'selectNode':
         this.selectNode(msg.id);
@@ -146,8 +203,23 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
       case 'expandNode':
         this.expandNode(msg.id, msg.direction);
         return;
+      case 'showMoreExpansion':
+        this.showMoreExpansion(msg.id, msg.direction);
+        return;
+      case 'showAllExpansion':
+        this.showAllExpansion(msg.id, msg.direction);
+        return;
+      case 'collapseNode':
+        this.collapseNode(msg.id, msg.direction);
+        return;
+      case 'hideNode':
+        this.hideNode(msg.id);
+        return;
       case 'openNode':
         await this.openNode(msg.id);
+        return;
+      case 'focusNode':
+        this.focusNode(msg.id);
         return;
     }
   }
@@ -156,6 +228,7 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     this.focusId = id;
     this.selectedId = id;
     this.nodeExpansions.clear();
+    this.hiddenNodeIds.clear();
     this.postState();
   }
 
@@ -172,15 +245,96 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     this.postState();
   }
 
+  private focusNode(id: LineageNodeId) {
+    if (!this.graph?.nodes.has(id)) return;
+    this.setFocus(id);
+  }
+
   private expandNode(id: LineageNodeId, direction: LineageDirection) {
     if (!this.graph?.nodes.has(id)) return;
     const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
-    const next = {
-      upstream: existing.upstream + (direction === 'upstream' ? 1 : 0),
-      downstream: existing.downstream + (direction === 'downstream' ? 1 : 0)
-    };
-    this.nodeExpansions.set(id, next);
-    this.selectedId = id;
+    const next: NodeExpansion = { ...existing };
+    if (direction === 'upstream') {
+      next.upstream += 1;
+      next.upstreamLimit ??= EXPANSION_VISIBLE_LIMIT;
+    } else {
+      next.downstream += 1;
+      next.downstreamLimit ??= EXPANSION_VISIBLE_LIMIT;
+    }
+
+    this.storeNodeExpansion(id, next);
+    this.selectedId = this.focusId;
+    this.postState();
+  }
+
+  private showMoreExpansion(id: LineageNodeId, direction: LineageDirection) {
+    if (!this.graph?.nodes.has(id)) return;
+    const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
+    const next: NodeExpansion = { ...existing };
+
+    if (direction === 'upstream') {
+      if (next.upstream <= 0) next.upstream = 1;
+      next.upstreamLimit = (next.upstreamLimit ?? EXPANSION_VISIBLE_LIMIT) + EXPANSION_VISIBLE_LIMIT;
+    } else {
+      if (next.downstream <= 0) next.downstream = 1;
+      next.downstreamLimit = (next.downstreamLimit ?? EXPANSION_VISIBLE_LIMIT) + EXPANSION_VISIBLE_LIMIT;
+    }
+
+    this.storeNodeExpansion(id, next);
+    this.selectedId = this.focusId;
+    this.postState();
+  }
+
+  private showAllExpansion(id: LineageNodeId, direction: LineageDirection) {
+    if (!this.graph?.nodes.has(id)) return;
+    const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
+    const next: NodeExpansion = { ...existing };
+    const adjacency = direction === 'upstream' ? this.graph.deps : this.graph.rdeps;
+    const visibleLimit = Math.max(EXPANSION_VISIBLE_LIMIT, adjacency.get(id)?.size ?? 0);
+
+    if (direction === 'upstream') {
+      if (next.upstream <= 0) next.upstream = 1;
+      next.upstreamLimit = visibleLimit;
+    } else {
+      if (next.downstream <= 0) next.downstream = 1;
+      next.downstreamLimit = visibleLimit;
+    }
+
+    this.storeNodeExpansion(id, next);
+    this.selectedId = this.focusId;
+    this.postState();
+  }
+
+  private collapseNode(id: LineageNodeId, direction: LineageDirection) {
+    if (!this.graph?.nodes.has(id)) return;
+    const existing = this.nodeExpansions.get(id) ?? { upstream: 0, downstream: 0 };
+    const next: NodeExpansion = { ...existing };
+
+    if (direction === 'upstream') {
+      if (next.upstream > 0) next.upstream -= 1;
+      if (next.upstream === 0) delete next.upstreamLimit;
+    } else if (next.downstream > 0) {
+      next.downstream -= 1;
+      if (next.downstream === 0) delete next.downstreamLimit;
+    }
+
+    this.storeNodeExpansion(id, next);
+    this.selectedId = this.focusId;
+    this.postState();
+  }
+
+  private storeNodeExpansion(id: LineageNodeId, expansion: NodeExpansion) {
+    if (expansion.upstream === 0 && expansion.downstream === 0) {
+      this.nodeExpansions.delete(id);
+      return;
+    }
+    this.nodeExpansions.set(id, expansion);
+  }
+
+  private hideNode(id: LineageNodeId) {
+    if (!this.graph?.nodes.has(id)) return;
+    this.hiddenNodeIds.add(id);
+    if (this.selectedId === id) this.selectedId = null;
     this.postState();
   }
 
@@ -190,8 +344,9 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
     if (!node) return;
 
     if (node.kind === 'source') {
-      this.setFocus(id);
-      void vscode.window.setStatusBarMessage(`FastLineage: source ${node.label}`, 1500);
+      this.selectedId = id;
+      this.postState();
+      void vscode.window.setStatusBarMessage(`FastLineage: source ${node.label} has no SQL file`, 1500);
       return;
     }
 
@@ -203,7 +358,8 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
 
     const doc = await vscode.workspace.openTextDocument(openUri);
     await vscode.window.showTextDocument(doc, { preview: false });
-    this.setFocus(id);
+    this.selectedId = id;
+    this.postState();
   }
 
   private async resolveNodeUri(kind: NodeKind, relation: string, hintedPath?: string): Promise<vscode.Uri | null> {
@@ -214,7 +370,27 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
         ? [`**/snapshots/**/${relation}.sql`]
         : kind === 'seed'
           ? [`**/seeds/**/${relation}.csv`, `**/seeds/**/${relation}.tsv`]
-          : [`**/models/**/${relation}.sql`];
+          : kind === 'analysis'
+            ? [`**/analyses/**/${relation}.sql`]
+            : [`**/models/**/${relation}.sql`];
+
+    if (this.dbtProject) {
+      const projectPaths =
+        kind === 'snapshot'
+          ? this.dbtProject.snapshotPaths
+          : kind === 'seed'
+            ? this.dbtProject.seedPaths
+            : kind === 'analysis'
+              ? this.dbtProject.analysisPaths
+              : this.dbtProject.modelPaths;
+      const projectGlobs =
+        kind === 'seed' ? [`**/${relation}.csv`, `**/${relation}.tsv`] : [`**/${relation}.sql`];
+
+      for (const glob of projectGlobs) {
+        const matches = await findFilesInProjectPaths(this.dbtProject, projectPaths, glob);
+        if (matches[0]) return matches[0];
+      }
+    }
 
     for (const glob of globs) {
       const matches = await vscode.workspace.findFiles(glob, EXCLUDE_GLOB, 10);
@@ -231,7 +407,22 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
         durationMs: this.durationMs,
         workspaceName: vscode.workspace.name ?? 'workspace',
         dbtRootHint: this.dbtRootHint,
-        graphStats: { models: 0, sources: 0, seeds: 0, snapshots: 0, edges: 0 },
+        refresh: {
+          stage: this.refreshStage,
+          isRefreshing: this.refreshStage !== 'idle'
+        },
+        graphStats: {
+          models: 0,
+          sources: 0,
+          seeds: 0,
+          snapshots: 0,
+          analyses: 0,
+          exposures: 0,
+          semanticModels: 0,
+          metrics: 0,
+          savedQueries: 0,
+          edges: 0
+        },
         focus: {
           focusId: this.focusId,
           selectedId: this.selectedId ?? this.focusId,
@@ -245,72 +436,62 @@ class FastLineageViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { nodes, edges } = computeSubgraph(
+    const subgraph = computeSubgraph(
       this.graph,
       this.focusId,
       this.upstreamDepth,
       this.downstreamDepth,
       this.nodeExpansions
     );
-    const visibleIds = new Set(nodes.map((node) => node.id));
-    const selectedId = this.selectedId && visibleIds.has(this.selectedId) ? this.selectedId : this.focusId;
-
-    let models = 0;
-    let sources = 0;
-    let seeds = 0;
-    let snapshots = 0;
-
-    for (const node of this.graph.nodes.values()) {
-      switch (node.kind) {
-        case 'model':
-          models += 1;
-          break;
-        case 'source':
-          sources += 1;
-          break;
-        case 'seed':
-          seeds += 1;
-          break;
-        case 'snapshot':
-          snapshots += 1;
-          break;
-      }
-    }
+    const nodes = subgraph.nodes.map((node) => ({
+      ...node,
+      hidden: this.hiddenNodeIds.has(node.id)
+    }));
+    const visibleIds = new Set(nodes.filter((node) => !node.hidden).map((node) => node.id));
+    const fallbackSelectedId = this.focusId && visibleIds.has(this.focusId) ? this.focusId : null;
+    const selectedId = this.selectedId && visibleIds.has(this.selectedId) ? this.selectedId : fallbackSelectedId;
 
     const state: WebviewState = {
       refreshedAtMs: this.refreshedAtMs,
       durationMs: this.durationMs,
       workspaceName: vscode.workspace.name ?? 'workspace',
       dbtRootHint: this.dbtRootHint,
-      graphStats: { models, sources, seeds, snapshots, edges: this.graph.edges.length },
+      refresh: {
+        stage: this.refreshStage,
+        isRefreshing: this.refreshStage !== 'idle'
+      },
+      graphStats: graphStats(this.graph),
       focus: {
         focusId: this.focusId,
         selectedId,
         upstreamDepth: this.upstreamDepth,
         downstreamDepth: this.downstreamDepth
       },
-      subgraph: { nodes, edges },
+      subgraph: { nodes, edges: subgraph.edges },
       dirtySinceRefresh: this.dirtySinceRefresh
     };
     this.view.webview.postMessage({ type: 'state', state });
   }
 
   private getHtml(webview: vscode.Webview) {
+    const assetVersion = String(Date.now());
+    const dagreUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'vendor', 'dagre.min.js'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'webview.js'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'webview.css'));
-    const nonce = String(Date.now());
+    const nonce = assetVersion;
     return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="${cssUri}">
+    <link rel="stylesheet" href="${cssUri}?v=${assetVersion}">
     <title>FastLineage</title>
   </head>
   <body>
     <div id="root"></div>
-    <script nonce="${nonce}" src="${jsUri}"></script>
+    <script nonce="${nonce}" src="${dagreUri}?v=${assetVersion}"></script>
+    <script nonce="${nonce}" src="${jsUri}?v=${assetVersion}"></script>
   </body>
 </html>`;
   }

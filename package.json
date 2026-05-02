@@ -57,16 +57,20 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "check": "npm run typecheck && npm run lint",
     "watch": "tsc -w -p .",
     "lint": "eslint .",
     "package": "vsce package",
     "publish": "vsce publish"
   },
   "devDependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@types/node": "^20.11.30",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.6.0",
     "eslint": "^9.1.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.59.1"
   }
 }

@@ -3,11 +3,16 @@
 # dev-only / repo-only
 .vscode/**
 .agent/**
+agent.md
+d copy.md
 docs/**
+graveyard/**
 src/**
 scripts/**
-fixtures/**
+**/dbt_project/**
+.github/**
 .gitignore
+elint.config.*
 
 # build / tooling
 node_modules/**
